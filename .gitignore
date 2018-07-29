@@ -1,0 +1,13 @@
+#ECLIPSE/MAVEN
+.project
+.settings
+.classpath
+
+#LOCAL_DEV
+dev/**
+*.pem
+*.crt
+*.rc
+target/**
+src/main/resources/application-dev.yml
+
