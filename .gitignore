@@ -10,4 +10,4 @@ dev/**
 *.rc
 target/**
 src/main/resources/application-dev.yml
-
+settings.xml

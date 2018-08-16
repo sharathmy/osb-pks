@@ -1,14 +1,15 @@
-package sb_playground;
+package pksServiceBroker;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
 
+@Component
 @SpringBootApplication
-public class PKS_sb {
-	
+public class PKSServiceBrokerApp {
 	
 	public static void main(String[] args) {
-		SpringApplication.run(PKS_sb.class, args);
-		
+		SpringApplication.run(PKSServiceBrokerApp.class, args);
 	}
+
 }

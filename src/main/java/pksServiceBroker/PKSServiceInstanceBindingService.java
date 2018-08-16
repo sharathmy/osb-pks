@@ -1,7 +1,10 @@
-package sb_playground;
+package pksServiceBroker;
+
+import java.util.logging.Logger;
 
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.servicebroker.model.binding.CreateServiceInstanceAppBindingResponse;
 import org.springframework.cloud.servicebroker.model.binding.CreateServiceInstanceBindingRequest;
@@ -13,34 +16,48 @@ import org.springframework.cloud.servicebroker.model.binding.GetServiceInstanceB
 import org.springframework.cloud.servicebroker.service.ServiceInstanceBindingService;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.security.oauth2.client.OAuth2RestOperations;
+import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
 public class PKSServiceInstanceBindingService implements ServiceInstanceBindingService {
 	@Value("${pks.fqdn}")
 	private String PKS_FQDN;
-	@Value("${pks.apps_tcp_fqdn}")
+	@Value("${routereg.appsTcpFqdn}")
 	private String TCP_FQDN;
-	
+
+	private static Logger LOG = Logger.getLogger(PKSServiceInstanceBindingService.class.getName());
+
 	@Autowired
-	OAuth2RestOperations restTemplate;
+	@Qualifier("pks")
+	OAuth2RestTemplate pksRestTemplate;
+
+	@Autowired
+	@Qualifier("route")
+	OAuth2RestTemplate routeRestTemplate;
 
 	@Override
 	public CreateServiceInstanceBindingResponse createServiceInstanceBinding(
 			CreateServiceInstanceBindingRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
-
 		HttpHeaders headers = new HttpHeaders();
 		headers.add("Host", PKS_FQDN + ":9021");
 		headers.add("Accept", "application/json");
 		headers.add("Content-Type", "application/json");
-		headers.add("Authorization", "Bearer " + restTemplate.getAccessToken());
+		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
-		JSONObject response = new JSONObject(
-				restTemplate.postForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds",
-						requestObject, String.class));
+
+		JSONObject response = new JSONObject(pksRestTemplate.postForObject(
+				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
+				String.class));
+
+		JSONObject jsonClusterInfo = new JSONObject(pksRestTemplate
+				.getForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
+		String master_ip = jsonClusterInfo.getJSONArray("kubernetes_master_ips").getString(0);
+		response.put("master_ip", master_ip);
+		
+
 		return CreateServiceInstanceAppBindingResponse.builder().credentials("k8s_context", response.toString())
 				.bindingExisted(false).build();
 	}
@@ -52,20 +69,18 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		headers.add("Host", PKS_FQDN + ":9021");
 		headers.add("Accept", "application/json");
 		headers.add("Content-Type", "application/json");
-		headers.add("Authorization", "Bearer " + restTemplate.getAccessToken());
+		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
-		return GetServiceInstanceAppBindingResponse
-				.builder()
-				.credentials("k8s_context", restTemplate.postForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds",
-						requestObject, String.class))
+		return GetServiceInstanceAppBindingResponse.builder()
+				.credentials("k8s_context", pksRestTemplate.postForObject(
+						"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, requestObject, String.class))
 				.build();
 	}
 
 	@Override
 	public void deleteServiceInstanceBinding(DeleteServiceInstanceBindingRequest request) {
 		// TODO Auto-generated method stub
-
 	}
 
 }

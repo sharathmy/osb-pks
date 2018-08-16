@@ -1,4 +1,4 @@
-package sb_playground;
+package pksServiceBroker;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Configuration;
@@ -11,7 +11,7 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 @EnableGlobalMethodSecurity(securedEnabled = true)
 @EnableWebSecurity
 @ConditionalOnWebApplication
-public class PKS_sb_security_config extends WebSecurityConfigurerAdapter {
+public class PKSServiceBrokerAppAPISecurityConfig extends WebSecurityConfigurerAdapter {
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {

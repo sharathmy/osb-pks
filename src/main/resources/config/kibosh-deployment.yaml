@@ -1,0 +1,18 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: kibosh-dp
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: kibosh
+    spec:
+      containers:
+      - name: kibosh
+        image: harbor.sausvdc02.pcf.dell.com/pks_admin_util/kibosh-dell:latest
+        #command: ["sleep","30d"]
+        ports:
+        - containerPort: 8080
+      serviceAccount: kibosh-helm

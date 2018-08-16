@@ -1,0 +1,34 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: REPLACE-ME
+spec:
+  MinReadySeconds: 30
+  spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        name: REPLACE-ME
+    spec:
+      containers:
+        - name: REPLACE-ME
+          image: harbor.scfd.isus.emc.com/pks_admin_util/tcp-route-emitter:latest
+          command: [ "sh", "-c"]
+          args: ["      "]
+          env:
+            - name: CF_API_FQDN
+              value: 
+            - name: TCP_ROUTER_PORT
+              value: 
+            - name: SERVICE_ID
+              value: 
+            - name: SERVICE_PORT
+              value: 
+            - name: SERVICE_IP
+              value: 
+            - name: ROUTE_CLIENT
+              value: 
+            - name: ROUTE_CLIENT_SECRET
+              value: 
+            - name: ROUTE_TTL
