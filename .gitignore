@@ -3,6 +3,8 @@
 .settings
 .classpath
 
+application-*.yml
+
 #LOCAL_DEV
 dev/**
 *.pem

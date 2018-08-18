@@ -1,0 +1,49 @@
+spring:
+  profiles: 
+  security:
+    user:
+      name: admin
+      password: pass
+      roles: ADMIN
+  application:
+    name: PKS-Broker
+
+logging:
+  level: 
+    org:
+      springframework: 
+        http: DEBUG
+pcf:
+  apps: 
+  sys: 
+  api: api.${pcf.sys}
+  login: login.${pcf.sys}
+  tcp: tcp.${pcf.apps}
+servicebroker:
+  service: 
+    id: PKS-Service
+    name: PKS-Service
+    description: Deploy On Demand PKS Clusters
+    bindable: true
+    bindings_retrievable: true
+routereg:
+  externalPortRange: 10000-64000
+  appsTcpFqdn: 
+  route_api_client:
+    accessTokenUri: https://${pcf.login}/oauth/token
+    client_id: tcp_emitter
+    client_secret: 
+    grant_type: client_credentials
+pks:
+  fqdn: 
+  pks_api_user: 
+    name: admin
+    password: 
+  pks_api_client:
+    accessTokenUri: https://${pks.fqdn}:8443/oauth/token
+    name: pks_cli
+    secret: ""
+    grant_type: password
+  broker_admin: 
+    name: admin 
+    password: pass

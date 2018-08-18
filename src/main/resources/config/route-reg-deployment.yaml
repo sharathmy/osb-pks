@@ -1,21 +1,20 @@
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: REPLACE-ME
+  name: 
 spec:
-  MinReadySeconds: 30
   spec:
   replicas: 1
   template:
     metadata:
       labels:
-        name: REPLACE-ME
+        name: 
     spec:
       containers:
-        - name: REPLACE-ME
+        - name: 
           image: harbor.scfd.isus.emc.com/pks_admin_util/tcp-route-emitter:latest
           command: [ "sh", "-c"]
-          args: ["      "]
+          args: ["route_emit"]
           env:
             - name: CF_API_FQDN
               value: 
