@@ -4,11 +4,19 @@ import io.fabric8.kubernetes.client.Config;
 import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.DefaultKubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.dsl.Resource;
+import io.fabric8.openshift.api.model.ClusterRoleBinding;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBindingBuilder;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBindingFluentImpl;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesRoleBinding;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesRoleRefBuilder;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesSubjectBuilder;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.json.JSONArray;
@@ -25,12 +33,14 @@ import org.springframework.cloud.servicebroker.model.instance.OperationState;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
+import org.springframework.core.annotation.AnnotationAttributes;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -116,7 +126,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		// DEBUG OVERRIDE
 
-		runner.setServiceInstanceId("8f76d0ff-061c-4ba2-914b-29a363f702a6");
+		runner.setServiceInstanceId("1468dc2b-e5ec-4301-a343-a301cbeff06c");
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.add("Host", PKS_FQDN + ":9021");
@@ -183,7 +193,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		return externalPort;
 	}
 
-	private KubernetesClient getClient(JSONObject kubeConfig, boolean internalRoute) {
+	private KubernetesClient getClient(JSONObject kubeConfig, boolean internalRoute, Boolean namespaced) {
 		String masterURL = "";
 		if (internalRoute) {
 			masterURL = "https://" + kubeConfig.getString("master_ip") + ":" + kubePort + "/";
@@ -191,12 +201,22 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			masterURL = kubeConfig.getJSONArray("clusters").getJSONObject(0).getJSONObject("cluster")
 					.getString("server");
 		}
-		Config config = new ConfigBuilder().withMasterUrl(masterURL)
+		Config config;
+		if (namespaced)
+		  config = new ConfigBuilder().withMasterUrl(masterURL)
 				.withOauthToken(
 						kubeConfig.getJSONArray("users").getJSONObject(0).getJSONObject("user").getString("token"))
 				.withCaCertData(kubeConfig.getJSONArray("clusters").getJSONObject(0).getJSONObject("cluster")
 						.getString("certificate-authority-data"))
 				.withNamespace(namespace).withTrustCerts(true).build();
+		else
+			config = new ConfigBuilder().withMasterUrl(masterURL)
+			.withOauthToken(
+					kubeConfig.getJSONArray("users").getJSONObject(0).getJSONObject("user").getString("token"))
+			.withCaCertData(kubeConfig.getJSONArray("clusters").getJSONObject(0).getJSONObject("cluster")
+					.getString("certificate-authority-data"))
+			.withTrustCerts(true).build();
+			
 		KubernetesClient client = new DefaultKubernetesClient(config);
 
 		return client;
@@ -219,7 +239,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	protected Boolean checkRouteRegDeployment(JSONObject kubeConfig, String componentName) {
 		Boolean cont = true;
-		KubernetesClient client = getClient(kubeConfig, true);
+		KubernetesClient client = getClient(kubeConfig, true, true);
 		String deploymentName = ROUTE_DEPLOYMENT_PREFIX + componentName;
 		Deployment deployment = client.apps().deployments().withName(deploymentName).get();
 		if (deployment == null) {
@@ -227,10 +247,10 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			System.err.println("did not find deployment" + deploymentName);
 			cont = true;
 		} else {
-			client = getClient(kubeConfig, false);
+			client = getClient(kubeConfig, false, true);
 			if (client != null) {
-				if (client.componentstatuses().toString() != null) {
-					System.err.println("deployment working " + client.componentstatuses().toString());
+				if (client.namespaces().withName(namespace).get().getStatus().toString() != null) {
+					System.err.println("deployment working " + client.namespaces().withName(namespace).get().getStatus().toString());
 					cont = false;
 				}
 			} else {
@@ -253,7 +273,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	public void createRouteRegDeployment(JSONObject kubeConfig, int internalPort, List<Object> internalIPs,
 			int externalPort, String componentName) throws FileNotFoundException {
 		String deploymentName = ROUTE_DEPLOYMENT_PREFIX + componentName;
-		KubernetesClient client = getClient(kubeConfig, true);
+		KubernetesClient client = getClient(kubeConfig, true, true);
 
 		List<HasMetadata> routeEmitDeployment = client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
 				.getClassLoader().getResourceAsStream(routeEmitDeploymentFilename)).get();
@@ -318,7 +338,42 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	}
 
 	protected void createKiboshDeployment(JSONObject kubeConfig) throws FileNotFoundException {
-		KubernetesClient client = getClient(kubeConfig, false);
+		KubernetesClient client = getClient(kubeConfig, false, false);
+		
+		KubernetesClusterRoleBinding kiboshRBACBinding = new KubernetesClusterRoleBindingBuilder()
+			      .withNewMetadata()
+			      .withName("kibosh-helm")
+			      .endMetadata()
+			      .addToSubjects(new KubernetesSubjectBuilder()
+			        .withKind("ServiceAccount")
+			        .withName("cluster-admin")
+			        .withNamespace(namespace)
+			        .build()
+			      )
+			      .withRoleRef(new KubernetesRoleRefBuilder()
+			        .withApiGroup("rbac.authorization.k8s.io")
+			        .withKind("ClusterRole")
+			        .withName("cluster-admin")
+			        .build()
+			      )
+			      .build();
+		
+				
+				
+//				(KubernetesClusterRoleBinding) client
+//				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
+//						.getResourceAsStream(kiboshRBACBindingFilename)).get().get(0);
+		System.err.println("cluster role binding");
+		if (kiboshRBACBinding instanceof KubernetesClusterRoleBinding) {
+			client.rbac().kubernetesClusterRoleBindings().createOrReplace(kiboshRBACBinding);
+			//kiboshRBACBinding = client.rbac().kubernetesClusterRoleBindings().createOrReplace(kiboshRBACBinding);
+			LOG.info("Created Service " + kiboshRBACBinding.getKind());
+		} else {
+			LOG.severe("Loaded resource is not a Service! " + kiboshRBACBinding);
+		}
+		client.close();
+		
+		client = getClient(kubeConfig, false, true);
 		Deployment kiboshDeployment = (Deployment) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
 				.getClassLoader().getResourceAsStream(kiboshDeploymentFilename)).get().get(0);
 		Service kiboshBazaarService = (Service) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
@@ -327,19 +382,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				.getResourceAsStream(kiboshServiceFilename)).get().get(0);
 		ServiceAccount kiboshRBACAccount = (ServiceAccount) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
 				.getClassLoader().getResourceAsStream(kiboshRBACAccountFilename)).get().get(0);
-//		Resource kiboshRBACBinding = (Resource) client
-//				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
-//						.getResourceAsStream(kiboshRBACBindingFilename));
-		byte[] contents = new byte[1024];
-		try {
-			PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
-					.getResourceAsStream(kiboshRBACBindingFilename).read(contents);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
-		System.err.println(new String(contents, 0, 0));
+		
+		
 		System.err.println("service acc");
 		if (kiboshRBACAccount instanceof ServiceAccount) {
 			kiboshRBACAccount = client.serviceAccounts().createOrReplace(kiboshRBACAccount);
@@ -347,14 +391,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		} else {
 			LOG.severe("Loaded resource is not a Service! " + kiboshRBACAccount);
 		}
-		System.err.println("cluster role binding");
-//		if (kiboshRBACBinding instanceof ClusterRoleBinding) {
-//			kiboshRBACBinding = client.resource(kiboshRBACBinding).createOrReplace();
-//			LOG.info("Created Service " + kiboshRBACBinding.getKind());
-//		} else {
-//			LOG.severe("Loaded resource is not a Service! " + kiboshRBACBinding);
-//		}
-
 		if (kiboshDeployment instanceof Deployment) {
 			kiboshDeployment.getSpec().getTemplate().getSpec().getContainers();
 			kiboshDeployment = client.apps().deployments().createOrReplace(kiboshDeployment);
