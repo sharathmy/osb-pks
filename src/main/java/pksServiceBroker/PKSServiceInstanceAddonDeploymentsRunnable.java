@@ -8,7 +8,7 @@ import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
-import io.fabric8.kubernetes.api.model.extensions.Deployment;
+import io.fabric8.kubernetes.api.model.apps.Deployment;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.json.JSONArray;
@@ -39,6 +39,7 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.logging.Logger;
 
 @Configuration
@@ -68,7 +69,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	private static String routeEmitDeploymentFilename = "config/route-reg-deployment.yaml";
 	private static String kiboshDeploymentFilename = "config/kibosh-deployment.yaml";
-	private static String kiboshRBACFilename = "config/kibosh-rbac.yaml";
+	private static String kiboshRBACAccountFilename = "config/kibosh-rbac-service-account.yaml";
+	private static String kiboshRBACBindingFilename = "config/kibosh-rbac-cluster-role-binding.yaml";
 	private static String kiboshServiceFilename = "config/kibosh-service.yaml";
 	private static String bazaarServiceFilename = "config/kibosh-bazaar-service.yaml";
 
@@ -84,10 +86,12 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private CreateServiceInstanceRequest serviceInstanceRequest;
 	private String action;
 	private String pksPlanName;
-
-	public String getPksPlanName() {
-		return pksPlanName;
-	}
+	private JSONObject jsonClusterInfo;
+	private HttpHeaders pksHeaders;
+	private HttpHeaders routeHeaders;
+	private HttpEntity<String> routeRequestObject;
+	private HttpEntity<String> pksRequestObject;
+	String serviceInstanceId;
 
 	@Autowired
 	@Qualifier("pks")
@@ -103,11 +107,62 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	public PKSServiceInstanceAddonDeploymentsRunnable getPKSServiceInstanceAddonDeploymentsRunnable(String action,
 			CreateServiceInstanceRequest request) {
 		PKSServiceInstanceAddonDeploymentsRunnable runner = new PKSServiceInstanceAddonDeploymentsRunnable();
+		// INITIALIZATION
+		state = OperationState.IN_PROGRESS;
+		operationStateMessage = "Preparing deployment";
 		runner.setRequest(request);
 		runner.setAction(action);
-		if (action.equals("CREATE"))
+		runner.setServiceInstanceId(request.getServiceInstanceId());
+
+		// DEBUG OVERRIDE
+
+		runner.setServiceInstanceId("8f76d0ff-061c-4ba2-914b-29a363f702a6");
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.add("Host", PKS_FQDN + ":9021");
+		headers.add("Accept", "application/json");
+		headers.add("Content-Type", "application/json");
+		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
+		headers.add("Accept-Encoding", "gzip");
+		runner.setPksHeaders(headers);
+		headers = new HttpHeaders();
+		headers.add("Accept", "application/json");
+		headers.add("Content-Type", "application/json");
+		headers.add("Authorization", "Bearer " + routeRestTemplate.getAccessToken());
+		headers.add("Accept-Encoding", "gzip");
+		runner.setRouteHeaders(headers);
+
+		JSONObject payload = new JSONObject().put("name", runner.getServiceInstanceId()).put("plan_name", pksPlanName).put(
+				"parameters",
+				new JSONObject().put("kubernetes_master_host", TCP_FQDN).put("kubernetes_master_port", externalPort));
+
+		runner.setPksRequestObject(new HttpEntity<String>(payload.toString(), runner.getPksHeaders()));
+		runner.setRouteRequestObject(new HttpEntity<String>("", runner.getRouteHeaders()));
+
+		switch (action) {
+		case "UPDATE":
+			System.err.println("update");
+			System.err.println(new JSONObject(pksRestTemplate
+					.getForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + runner.getServiceInstanceId(), String.class)));
+			runner.setJsonClusterInfo(new JSONObject(pksRestTemplate
+					.getForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + runner.getServiceInstanceId(), String.class)));
+			System.err.println("create cluster info "+runner.getJsonClusterInfo().toString());
+			runner.setExternalPort(runner.getJsonClusterInfo().getJSONObject("parameters").getInt("kubernetes_master_port"));
+			break;
+		case "CREATE":
+			System.err.println("create");
 			runner.setExternalPort(getFreePortForCFTcpRouter());
+			break;
+		default:
+			break;
+		}
+		System.err.println("returning runner");
 		return runner;
+	}
+
+	private String getServiceInstanceId() {
+		// TODO Auto-generated method stub
+		return this.serviceInstanceId;
 	}
 
 	private void setExternalPort(int externalPort) {
@@ -152,15 +207,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		int portMax = Integer.parseInt(portRange.split("-")[1]);
 		int portMaster = new Random().nextInt(portMax - portMin + 1) + portMin;
 		Set<Integer> ports = new LinkedHashSet<>();
-		HttpHeaders headers = new HttpHeaders();
-		headers.add("Accept", "application/json");
-		headers.add("Content-Type", "application/json");
-		headers.add("Authorization", "Bearer " + routeRestTemplate.getAccessToken());
-		headers.add("Accept-Encoding", "gzip");
-		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
-		JSONArray routes = new JSONArray(routeRestTemplate
-				.exchange("https://" + pcfApi + "/routing/v1/tcp_routes", HttpMethod.GET, requestObject, String.class)
-				.getBody().toString());
+		JSONArray routes = new JSONArray(routeRestTemplate.exchange("https://" + pcfApi + "/routing/v1/tcp_routes",
+				HttpMethod.GET, routeRequestObject, String.class).getBody().toString());
 		routes.forEach((route) -> {
 			ports.add(new JSONObject(route.toString()).getInt("port"));
 		});
@@ -173,22 +221,32 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		Boolean cont = true;
 		KubernetesClient client = getClient(kubeConfig, true);
 		String deploymentName = ROUTE_DEPLOYMENT_PREFIX + componentName;
-		Deployment deployment = client.extensions().deployments().withName(deploymentName).get();
+		Deployment deployment = client.apps().deployments().withName(deploymentName).get();
 		if (deployment == null) {
 			client.close();
 			System.err.println("did not find deployment" + deploymentName);
 			cont = true;
 		} else {
 			client = getClient(kubeConfig, false);
-			if (client != null && client.getApiVersion() != null) {
-				System.err.println("deployment working");
-				cont = false;
+			if (client != null) {
+				if (client.componentstatuses().toString() != null) {
+					System.err.println("deployment working " + client.componentstatuses().toString());
+					cont = false;
+				}
 			} else {
-				System.err.println("deployment found but not operational");
-				cont = true;
+				if (deployment.getStatus().getCollisionCount() > 0) {
+					System.err.println("deployment found but errored or failing");
+					cont = false;
+					state = OperationState.FAILED;
+				} else {
+					System.err.println("deployment found but routes not propagated");
+					cont = true;
+				}
+
 			}
-			client.close();
+
 		}
+		client.close();
 		return cont;
 	}
 
@@ -248,8 +306,9 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					});
 			deployment.getMetadata().setName(deploymentName);
 			deployment.getSpec().getTemplate().getMetadata().getLabels().put("name", deploymentName);
+			deployment.getSpec().getSelector().getMatchLabels().put("name", deploymentName);
 			deployment.getSpec().getTemplate().getSpec().getContainers().get(0).setName(deploymentName);
-			deployment = client.extensions().deployments().createOrReplace(deployment);
+			deployment = client.apps().deployments().createOrReplace(deployment);
 			LOG.info("Created Deployment " + deployment.getStatus());
 
 		} else {
@@ -266,33 +325,52 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				.getClassLoader().getResourceAsStream(bazaarServiceFilename)).get().get(0);
 		Service kiboshService = (Service) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
 				.getResourceAsStream(kiboshServiceFilename)).get().get(0);
-		ServiceAccount kiboshRBAC = (ServiceAccount) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
-				.getClassLoader().getResourceAsStream(kiboshRBACFilename)).get().get(0);
-		
-		
-		if (kiboshRBAC instanceof ServiceAccount) {
-			kiboshRBAC = client.serviceAccounts().createOrReplace(kiboshRBAC);
-			LOG.info("Created Service " + kiboshRBAC.getKind());
-		} else {
-			LOG.severe("Loaded resource is not a Service! " + kiboshRBAC);
+		ServiceAccount kiboshRBACAccount = (ServiceAccount) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
+				.getClassLoader().getResourceAsStream(kiboshRBACAccountFilename)).get().get(0);
+//		Resource kiboshRBACBinding = (Resource) client
+//				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
+//						.getResourceAsStream(kiboshRBACBindingFilename));
+		byte[] contents = new byte[1024];
+		try {
+			PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
+					.getResourceAsStream(kiboshRBACBindingFilename).read(contents);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
 		}
+
+		System.err.println(new String(contents, 0, 0));
+		System.err.println("service acc");
+		if (kiboshRBACAccount instanceof ServiceAccount) {
+			kiboshRBACAccount = client.serviceAccounts().createOrReplace(kiboshRBACAccount);
+			LOG.info("Created Service " + kiboshRBACAccount.getKind());
+		} else {
+			LOG.severe("Loaded resource is not a Service! " + kiboshRBACAccount);
+		}
+		System.err.println("cluster role binding");
+//		if (kiboshRBACBinding instanceof ClusterRoleBinding) {
+//			kiboshRBACBinding = client.resource(kiboshRBACBinding).createOrReplace();
+//			LOG.info("Created Service " + kiboshRBACBinding.getKind());
+//		} else {
+//			LOG.severe("Loaded resource is not a Service! " + kiboshRBACBinding);
+//		}
 
 		if (kiboshDeployment instanceof Deployment) {
 			kiboshDeployment.getSpec().getTemplate().getSpec().getContainers();
-			kiboshDeployment = client.extensions().deployments().createOrReplace(kiboshDeployment);
+			kiboshDeployment = client.apps().deployments().createOrReplace(kiboshDeployment);
 			LOG.info("Created Deployment " + kiboshDeployment.getStatus());
 		} else {
 			LOG.severe("Loaded resource is not a Deployment! " + kiboshDeployment);
 		}
 		if (kiboshBazaarService instanceof Service) {
 			kiboshBazaarService = client.services().createOrReplace(kiboshBazaarService);
-			LOG.info("Created Service " + kiboshBazaarService.getStatus());
+			LOG.info("Created Bazaar Service " + kiboshBazaarService.getStatus());
 		} else {
 			LOG.severe("Loaded resource is not a Service! " + kiboshBazaarService);
 		}
 		if (kiboshService instanceof Service) {
 			kiboshService = client.services().createOrReplace(kiboshService);
-			LOG.info("Created Service " + kiboshService.getStatus());
+			LOG.info("Created KIBOSH Service " + kiboshService.getStatus());
 		} else {
 			LOG.severe("Loaded resource is not a Service! " + kiboshService);
 		}
@@ -301,44 +379,26 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	@Override
 	public void run() {
-		state = OperationState.IN_PROGRESS;
-		operationStateMessage = "Preparing deployment";
-		String serviceInstanceId = serviceInstanceRequest.getServiceInstanceId();
-		serviceInstanceId="9d765d33-85dc-462e-a404-acf8559491de";
-		JSONObject jsonClusterInfo;
 
-		// SET HEADERS for PKS API
-		HttpHeaders headers = new HttpHeaders();
-		headers.add("Host", PKS_FQDN + ":9021");
-		headers.add("Accept", "application/json");
-		headers.add("Content-Type", "application/json");
-		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
-		headers.add("Accept-Encoding", "gzip");
-		pksPlanName = getPlan(serviceInstanceRequest.getPlanId(), serviceInstanceRequest.getServiceDefinition())
-				.getName();
-		JSONObject payload = new JSONObject().put("name", serviceInstanceId).put("plan_name", pksPlanName).put(
-				"parameters",
-				new JSONObject().put("kubernetes_master_host", TCP_FQDN).put("kubernetes_master_port", externalPort));
-
-		HttpEntity<String> requestObject = new HttpEntity<String>(payload.toString(), headers);
 		JSONArray master_ips = new JSONArray();
 		master_ips.put("empty");
 
 		// SWITCH TO HANDLE CHANGES IN WORKFLOWS
 		switch (action) {
 		case "CREATE":
-			pksRestTemplate.postForObject("https://" + PKS_FQDN + ":9021/v1/clusters", requestObject, String.class);
+			pksPlanName = getPlan(serviceInstanceRequest.getPlanId(), serviceInstanceRequest.getServiceDefinition())
+					.getName();
+			pksRestTemplate.postForObject("https://" + PKS_FQDN + ":9021/v1/clusters", pksRequestObject, String.class);
 			break;
 		case "UPDATE":
-			jsonClusterInfo = new JSONObject(pksRestTemplate
-					.getForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
-			this.externalPort = jsonClusterInfo.getJSONObject("parameters").getInt("kubernetes_master_port");
+			System.err.println(externalPort);
 		default:
 			break;
 		}
 		// CHECK CLUSTER CREATION PROCESS UNTIL ITS DONE
 		while (!InetAddressValidator.getInstance().isValid(master_ips.get(0).toString())
 				&& (state != OperationState.FAILED || state != OperationState.SUCCEEDED)) {
+			System.err.println(serviceInstanceId);
 			jsonClusterInfo = new JSONObject(pksRestTemplate
 					.getForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
 			try {
@@ -377,7 +437,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		// GET CLUSTER CONTEXT
 		JSONObject jsonClusterContext = new JSONObject(pksRestTemplate.postForObject(
-				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
+				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", pksRequestObject,
 				String.class));
 
 		jsonClusterContext.put("master_ip", master_ips.getString(0));
@@ -391,13 +451,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			e.printStackTrace();
 		}
 		// CHECK IF PKS CLUSTER ALREADY HAS A ROUTE EMITTER POD RUNNING
-		while (checkRouteRegDeployment(jsonClusterContext, "master")) {
+		while (checkRouteRegDeployment(jsonClusterContext, "master") && !state.equals(OperationState.FAILED)) {
 			try {
 				TimeUnit.SECONDS.sleep(5);
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
 		}
+		if (state.equals(OperationState.FAILED))
+			return;
 		operationStateMessage = "RouteRegistration for Master Complete";
 
 		// DEPLOY KIBOSH POD
@@ -407,6 +469,9 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		}
+
+		operationStateMessage = "finished deployment";
+		state = OperationState.SUCCEEDED;
 
 	}
 
@@ -424,6 +489,54 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	public String getOperationStateMessage() {
 		return operationStateMessage;
+	}
+
+	public HttpHeaders getPksHeaders() {
+		return pksHeaders;
+	}
+
+	public void setPksHeaders(HttpHeaders pksHeaders) {
+		this.pksHeaders = pksHeaders;
+	}
+
+	public HttpHeaders getRouteHeaders() {
+		return routeHeaders;
+	}
+
+	public void setRouteHeaders(HttpHeaders routeHeaders) {
+		this.routeHeaders = routeHeaders;
+	}
+
+	public HttpEntity<String> getRouteRequestObject() {
+		return routeRequestObject;
+	}
+
+	public void setRouteRequestObject(HttpEntity<String> routeRequestObject) {
+		this.routeRequestObject = routeRequestObject;
+	}
+
+	public HttpEntity<String> getPksRequestObject() {
+		return pksRequestObject;
+	}
+
+	public void setPksRequestObject(HttpEntity<String> pksRequestObject) {
+		this.pksRequestObject = pksRequestObject;
+	}
+
+	public void setServiceInstanceId(String serviceInstanceId) {
+		this.serviceInstanceId = serviceInstanceId;
+	}
+
+	public String getPksPlanName() {
+		return pksPlanName;
+	}
+
+	public JSONObject getJsonClusterInfo() {
+		return jsonClusterInfo;
+	}
+
+	public void setJsonClusterInfo(JSONObject jsonClusterInfo) {
+		this.jsonClusterInfo = jsonClusterInfo;
 	}
 
 	private Plan getPlan(String planId, ServiceDefinition serviceDef) {

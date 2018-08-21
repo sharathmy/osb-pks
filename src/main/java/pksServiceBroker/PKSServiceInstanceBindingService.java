@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
 public class PKSServiceInstanceBindingService implements ServiceInstanceBindingService {
 	@Value("${pks.fqdn}")
 	private String PKS_FQDN;
-	@Value("${routereg.appsTcpFqdn}")
+	@Value("${pcf.tcp}")
 	private String TCP_FQDN;
 
 	private static Logger LOG = Logger.getLogger(PKSServiceInstanceBindingService.class.getName());
