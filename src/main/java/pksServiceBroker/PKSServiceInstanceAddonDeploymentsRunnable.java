@@ -7,7 +7,6 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.Node;
-import io.fabric8.kubernetes.api.model.NodeAddress;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
@@ -34,8 +33,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,7 +41,6 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.io.FileNotFoundException;
-import java.net.ConnectException;
 import java.util.logging.Logger;
 
 @Configuration
@@ -88,7 +84,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private String operationStateMessage;
 	private OperationState state;
 	private int externalPort;
-	private CreateServiceInstanceRequest serviceInstanceRequest;
 	private String action;
 	private JSONObject jsonClusterInfo;
 	private HttpHeaders pksHeaders;
@@ -114,7 +109,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		// INITIALIZATION
 		state = OperationState.IN_PROGRESS;
 		operationStateMessage = "Preparing deployment";
-		runner.setRequest(request);
 		runner.setAction(action);
 		runner.setServiceInstanceId(request.getServiceInstanceId());
 
@@ -165,10 +159,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	private void setExternalPort(int externalPort) {
 		this.externalPort = externalPort;
-	}
-
-	private void setRequest(CreateServiceInstanceRequest serviceInstanceRequest) {
-		this.serviceInstanceRequest = serviceInstanceRequest;
 	}
 
 	public PKSServiceInstanceAddonDeploymentsRunnable() {
@@ -249,9 +239,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					e.printStackTrace();
 				}
 			}
-			client.close();
 		}
-
+		client.close();
 		return cont;
 	}
 
@@ -260,9 +249,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		String deploymentName = ROUTE_DEPLOYMENT_PREFIX + componentName;
 		KubernetesClient client = getClient(kubeConfig, true, true);
 
-		Deployment routeEmitDeployment = (Deployment) client.apps().deployments()
-				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
-						.getResourceAsStream(routeEmitDeploymentFilename));
+		Deployment routeEmitDeployment = client.apps().deployments()
+				.load(routeEmitDeploymentFilename).get();
 
 		if (routeEmitDeployment instanceof Deployment) {
 			routeEmitDeployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv().iterator()
@@ -328,7 +316,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		ServiceAccount kiboshRBACAccount = client.serviceAccounts().load(kiboshRBACAccountFilename).get();
 		KubernetesClusterRoleBinding kiboshRBACBinding = client.rbac().kubernetesClusterRoleBindings()
 				.load(kiboshRBACBindingFilename).get();
-
 		if (kiboshRBACAccount instanceof ServiceAccount) {
 			kiboshRBACAccount = client.serviceAccounts().createOrReplace(kiboshRBACAccount);
 			LOG.info("Created Service " + kiboshRBACAccount.getKind());
@@ -365,12 +352,10 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		client.nodes().list().getItems().forEach((Node node) -> {
 			nodeIPs.put(node.getStatus().getAddresses().get(0).getAddress());
 		});
-
 		createRouteRegDeployment(jsonClusterContext, kiboshService.getSpec().getPorts().get(0).getNodePort(),
 				nodeIPs.toList(), getFreePortForCFTcpRouter(), "kibosh");
 		createRouteRegDeployment(jsonClusterContext, kiboshBazaarService.getSpec().getPorts().get(0).getNodePort(),
 				nodeIPs.toList(), getFreePortForCFTcpRouter(), "kibosh-bazaar");
-
 		client.close();
 
 	}
