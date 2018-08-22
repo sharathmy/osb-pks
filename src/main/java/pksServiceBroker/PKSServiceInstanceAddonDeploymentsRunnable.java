@@ -119,7 +119,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		runner.setServiceInstanceId(request.getServiceInstanceId());
 
 		// DEBUG OVERRIDE
-		//runner.setServiceInstanceId("e162add3-4cdc-4aa2-bca0-1cba77005026");
+		// runner.setServiceInstanceId("e162add3-4cdc-4aa2-bca0-1cba77005026");
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.add("Host", PKS_FQDN + ":9021");
@@ -260,8 +260,9 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		String deploymentName = ROUTE_DEPLOYMENT_PREFIX + componentName;
 		KubernetesClient client = getClient(kubeConfig, true, true);
 
-		Deployment routeEmitDeployment = (Deployment) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
-				.getClassLoader().getResourceAsStream(routeEmitDeploymentFilename)).get().get(0);
+		Deployment routeEmitDeployment = (Deployment) client.apps().deployments()
+				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
+						.getResourceAsStream(routeEmitDeploymentFilename));
 
 		if (routeEmitDeployment instanceof Deployment) {
 			routeEmitDeployment.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv().iterator()
@@ -320,25 +321,21 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	protected void createKiboshDeployment(JSONObject jsonClusterContext) throws FileNotFoundException {
 		KubernetesClient client;
-
 		client = getClient(jsonClusterContext, false, true);
-		Deployment kiboshDeployment = (Deployment) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
-				.getClassLoader().getResourceAsStream(kiboshDeploymentFilename)).get().get(0);
-		Service kiboshBazaarService = (Service) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
-				.getClassLoader().getResourceAsStream(bazaarServiceFilename)).get().get(0);
-		Service kiboshService = (Service) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
-				.getResourceAsStream(kiboshServiceFilename)).get().get(0);
-		ServiceAccount kiboshRBACAccount = (ServiceAccount) client.load(PKSServiceInstanceAddonDeploymentsRunnable.class
-				.getClassLoader().getResourceAsStream(kiboshRBACAccountFilename)).get().get(0);
+		Deployment kiboshDeployment = client.apps().deployments().load(kiboshDeploymentFilename).get();
+		Service kiboshBazaarService = client.services().load(bazaarServiceFilename).get();
+		Service kiboshService = client.services().load(kiboshServiceFilename).get();
+		ServiceAccount kiboshRBACAccount = client.serviceAccounts().load(kiboshRBACAccountFilename).get();
+		KubernetesClusterRoleBinding kiboshRBACBinding = client.rbac().kubernetesClusterRoleBindings()
+				.load(kiboshRBACBindingFilename).get();
 
 		if (kiboshRBACAccount instanceof ServiceAccount) {
 			kiboshRBACAccount = client.serviceAccounts().createOrReplace(kiboshRBACAccount);
 			LOG.info("Created Service " + kiboshRBACAccount.getKind());
 		} else {
-			LOG.severe("Loaded resource is not a Service! " + kiboshRBACAccount);
+			LOG.severe("Loaded resource is not an Account! " + kiboshRBACAccount);
 		}
 		if (kiboshDeployment instanceof Deployment) {
-			kiboshDeployment.getSpec().getTemplate().getSpec().getContainers();
 			kiboshDeployment = client.apps().deployments().createOrReplace(kiboshDeployment);
 			LOG.info("Created Deployment " + kiboshDeployment.getStatus());
 		} else {
@@ -356,23 +353,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			LOG.info("Created KIBOSH Service " + kiboshService.getStatus());
 		} else {
 			LOG.severe("Loaded resource is not a Service! " + kiboshService);
-
 		}
-		HashMap<String, String> annotations = new HashMap<String, String>();
-		annotations.put("rbac.authorization.kubernetes.io/autoupdate", "true");
-		KubernetesClusterRoleBinding kiboshRBACBinding = client.rbac().kubernetesClusterRoleBindings()
-				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
-						.getResourceAsStream(kiboshRBACBindingFilename))
-				.get();
-
-//				new KubernetesClusterRoleBindingBuilder().withNewMetadata()
-//				.withName("kibosh-helm").withAnnotations(annotations).endMetadata()
-//				.addToSubjects(new KubernetesSubjectBuilder().withKind("ServiceAccount").withName("kibosh-helm")
-//						.withNamespace(namespace).build())
-//				.withRoleRef(new KubernetesRoleRefBuilder().withApiGroup("rbac.authorization.k8s.io")
-//						.withKind("ClusterRole").withName("cluster-admin").build())
-//				.build();
-
 		if (kiboshRBACBinding instanceof KubernetesClusterRoleBinding) {
 			client.rbac().kubernetesClusterRoleBindings().createOrReplace(kiboshRBACBinding);
 			LOG.info("Created Service " + kiboshRBACBinding.getKind());
@@ -384,7 +365,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		client.nodes().list().getItems().forEach((Node node) -> {
 			nodeIPs.put(node.getStatus().getAddresses().get(0).getAddress());
 		});
-		
+
 		createRouteRegDeployment(jsonClusterContext, kiboshService.getSpec().getPorts().get(0).getNodePort(),
 				nodeIPs.toList(), getFreePortForCFTcpRouter(), "kibosh");
 		createRouteRegDeployment(jsonClusterContext, kiboshBazaarService.getSpec().getPorts().get(0).getNodePort(),
