@@ -65,7 +65,7 @@
 					</arguments>
 					<systemProperties>
 						<systemProperty>
-							<key>TRUST:CERTS</key>
+							<key>TRUST_CERTS</key>
 							<value>login.system.pcf21.starkandwayne.com,
 								apps.pcf21.starkandwayne.com, system.pcf21.starkandwayne.com,
 								api.pks.pcf21.starkandwayne.com:9021,
