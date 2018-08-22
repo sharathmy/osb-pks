@@ -56,7 +56,6 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 				.getForObject("https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
 		String master_ip = jsonClusterInfo.getJSONArray("kubernetes_master_ips").getString(0);
 		response.put("master_ip", master_ip);
-		
 
 		return CreateServiceInstanceAppBindingResponse.builder().credentials("k8s_context", response.toString())
 				.bindingExisted(false).build();
@@ -72,6 +71,7 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
+		
 		return GetServiceInstanceAppBindingResponse.builder()
 				.credentials("k8s_context", pksRestTemplate.postForObject(
 						"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, requestObject, String.class))
