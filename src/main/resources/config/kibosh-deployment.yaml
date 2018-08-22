@@ -1,18 +1,33 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kibosh-dp
+  name: kibosh
 spec:
+  selector:
+    matchLabels:
+      name: kibosh
   replicas: 1
   template:
     metadata:
       labels:
-        app: kibosh
+        name: kibosh
     spec:
       containers:
       - name: kibosh
-        image: harbor.sausvdc02.pcf.dell.com/pks_admin_util/kibosh-dell:latest
-        #command: ["sleep","30d"]
+        image: nouseforaname/kibosh:latest
+        imagePullPolicy: Always
+        command: ["start"]
         ports:
         - containerPort: 8080
+        - containerPort: 8081
+        readinessProbe:
+        tcpSocket:
+          port: 8080
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      livenessProbe:
+        tcpSocket:
+          port: 8080
+        initialDelaySeconds: 15
+        periodSeconds: 20
       serviceAccount: kibosh-helm

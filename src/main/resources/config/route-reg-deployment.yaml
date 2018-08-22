@@ -1,9 +1,11 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: 
 spec:
-  spec:
+  selector:
+    matchLabels:
+      name:
   replicas: 1
   template:
     metadata:
@@ -12,7 +14,8 @@ spec:
     spec:
       containers:
         - name: 
-          image: harbor.scfd.isus.emc.com/pks_admin_util/tcp-route-emitter:latest
+          image: nouseforaname/tcp-route-emitter:latest
+          imagePullPolicy: Always
           command: [ "sh", "-c"]
           args: ["route_emit"]
           env:

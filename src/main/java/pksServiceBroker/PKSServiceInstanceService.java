@@ -51,7 +51,7 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		String serviceInstanceId=request.getServiceInstanceId();
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
 			addonDeploymentRunnables.put(serviceInstanceId,
-					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable", "UPDATE",
+					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable", "CREATE",
 							request));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();

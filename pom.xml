@@ -126,7 +126,7 @@
 				<version>4.0-SNAPSHOT</version>
 				<type>pom</type>
 				<scope>import</scope>
-				<systemPath>/home/konstantin/WorkSpace/kubernetes-client/target/classes/kubernetes-client-bom/pom.xml</systemPath>
+				<systemPath>./kubernetes-client-snaphot-bom.xml</systemPath>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
