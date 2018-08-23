@@ -21,6 +21,8 @@ spec:
           env:
             - name: CF_API_FQDN
               value: 
+            - name: CF_APPS_FQDN
+              value:
             - name: TCP_ROUTER_PORT
               value: 
             - name: SERVICE_ID
