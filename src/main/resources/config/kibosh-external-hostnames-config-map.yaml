@@ -1,0 +1,22 @@
+apiVersion: v1
+data:
+  kibosh.fqdn:
+  kibosh.port:
+  kibosh.user:
+  kibosh.password:
+  kibosh.protocoll:
+    
+  bazaar.fqdn:
+  bazaar.port:
+  bazaar.user:
+  bazaar.password:
+  bazaar.protocoll:
+    
+  kubernetes.fqdn:
+  kubernetes.port:
+  kubernetes.protocoll:
+  
+kind: ConfigMap
+metadata:
+  name: cluster-addon-deployment-data
+  namespace: kube-system
