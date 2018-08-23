@@ -47,11 +47,11 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
-
+		LOG.info(request.getOriginatingIdentity() + " requested creation of Credentials PKS Cluster "
+				+ serviceInstanceId + " for " + request.getContext());
 		JSONObject response = new JSONObject(pksRestTemplate.postForObject(
 				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
 				String.class));
-		System.err.println(response.toString());
 		return CreateServiceInstanceAppBindingResponse.builder().credentials("k8s_context", response.toMap())
 				.bindingExisted(false).build();
 	}
@@ -66,6 +66,8 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
+		LOG.info(request.getOriginatingIdentity() + " requested retrieval of Credentials PKS Cluster "
+				+ serviceInstanceId);
 		return GetServiceInstanceAppBindingResponse.builder()
 				.credentials("k8s_context", pksRestTemplate.postForObject(
 						"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, requestObject, String.class))
@@ -76,5 +78,4 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 	public void deleteServiceInstanceBinding(DeleteServiceInstanceBindingRequest request) {
 		// TODO Auto-generated method stub
 	}
-
 }

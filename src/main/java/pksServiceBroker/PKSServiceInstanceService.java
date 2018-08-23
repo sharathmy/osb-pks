@@ -1,8 +1,8 @@
 package pksServiceBroker;
 
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.servicebroker.model.instance.CreateServiceInstanceRequest;
 import org.springframework.cloud.servicebroker.model.instance.CreateServiceInstanceResponse;
 import org.springframework.cloud.servicebroker.model.instance.DeleteServiceInstanceRequest;
@@ -22,17 +22,16 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.stereotype.Service;
 
+import pksServiceBroker.Config.BrokerAction;
+import pksServiceBroker.Config.RoutingLayer;
+
 import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Logger;
 
 @Service
 public class PKSServiceInstanceService implements ServiceInstanceService {
-	private static Logger log = Logger.getLogger(PKSServiceInstanceService.class.getName());
-
-	@Value("${pks.fqdn}")
-	private String PKS_FQDN;
-	@Value("${pcf.tcp}")
-	private String TCP_FQDN;
+	private static Logger LOG = Logger.getLogger(PKSServiceInstanceService.class.getName());
 
 	@Autowired
 	@Qualifier("pks")
@@ -43,41 +42,54 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 	OAuth2RestTemplate routeRestTemplate;
 
 	@Autowired
+	Config sbConfig;
+
+	@Autowired
 	private ApplicationContext appContext;
 
-	private static HashMap<String, PKSServiceInstanceAddonDeploymentsRunnable> addonDeploymentRunnables = new HashMap<>(0);
+	private static HashMap<String, PKSServiceInstanceAddonDeploymentsRunnable> addonDeploymentRunnables = new HashMap<>(
+			0);
 
 	public CreateServiceInstanceResponse createServiceInstance(CreateServiceInstanceRequest request) {
-		String serviceInstanceId=request.getServiceInstanceId();
+		String serviceInstanceId = request.getServiceInstanceId();
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
-			addonDeploymentRunnables.put(serviceInstanceId,
-					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable", "CREATE",
-							request));
+			addonDeploymentRunnables.put(serviceInstanceId, (PKSServiceInstanceAddonDeploymentsRunnable) appContext
+					.getBean("addonDeploymentRunnable", Config.BrokerAction.CREATE, request, RoutingLayer.TCP));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();
-			log.info(request.getOriginatingIdentity() + " requested creation of "
+			LOG.info(request.getOriginatingIdentity() + " requested creation of "
 					+ request.getServiceDefinition().getName() + " with ID " + serviceInstanceId + " for "
 					+ request.getContext());
 		}
-		return CreateServiceInstanceResponse.builder()
-				.dashboardUrl("https://" + TCP_FQDN + ":"
-						+ addonDeploymentRunnables.get(serviceInstanceId).getExternalPort())
-				.async(true).build();
+		Map<String, String> clusterConfigData = addonDeploymentRunnables.get(serviceInstanceId).getClusterConfigMap()
+				.getData();
+		JSONObject dashboards = new JSONObject();
+		String KUBE_API_HTTP_ADDR = clusterConfigData.get("kubernetes.protocoll")
+				+ clusterConfigData.get("kubernetes.fqdn") + ":" + clusterConfigData.get("kubernetes.port");
+		String BAZAAR_API_HTTP_ADDR = clusterConfigData.get("bazaar.protocoll") + clusterConfigData.get("bazaar.fqdn")
+				+ ":" + clusterConfigData.get("bazaar.port");
+
+		String KIBOSH_API_HTTP_ADDR = clusterConfigData.get("kibosh.protocoll") + clusterConfigData.get("kibosh.fqdn")
+				+ ":" + clusterConfigData.get("kibosh.port");
+		dashboards.put("kube_api", KUBE_API_HTTP_ADDR);
+		dashboards.put("kibosh_service_broker", BAZAAR_API_HTTP_ADDR);
+		dashboards.put("kibosh_bazaar_enpoindt", KIBOSH_API_HTTP_ADDR);
+
+		return CreateServiceInstanceResponse.builder().dashboardUrl(dashboards.toString()).async(true).build();
 	}
 
 	public UpdateServiceInstanceResponse updateServiceInstance(UpdateServiceInstanceRequest request) {
-		String serviceInstanceId=request.getServiceInstanceId();
-		//serviceInstanceId="c98498ac-d1af-4cbb-8286-42c4b3958fe6";
+		String serviceInstanceId = request.getServiceInstanceId();
+		// serviceInstanceId="c98498ac-d1af-4cbb-8286-42c4b3958fe6";
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
-			addonDeploymentRunnables.put(serviceInstanceId,
-					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable", "UPDATE",
-							request));
+			addonDeploymentRunnables.put(serviceInstanceId, (PKSServiceInstanceAddonDeploymentsRunnable) appContext
+					.getBean("addonDeploymentRunnable", "UPDATE", request));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();
-			log.info(request.getOriginatingIdentity() + " requested update of "
+			LOG.info(request.getOriginatingIdentity() + " requested update of "
 					+ request.getServiceDefinition().getName() + " with ID " + serviceInstanceId + " for "
 					+ request.getContext());
-		}else {
+		} else {
 			return UpdateServiceInstanceResponse.builder().async(false).build();
 		}
 
@@ -87,16 +99,16 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 	public DeleteServiceInstanceResponse deleteServiceInstance(DeleteServiceInstanceRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
 
-		log.info(request.getOriginatingIdentity() + " requested deletetion of PKS Cluster :" + serviceInstanceId);
+		LOG.info(request.getOriginatingIdentity() + " requested deletetion of PKS Cluster :" + serviceInstanceId);
 
 		HttpHeaders headers = new HttpHeaders();
-		headers.add("Host", PKS_FQDN + ":9021");
+		headers.add("Host", sbConfig.PKS_FQDN + ":9021");
 		headers.add("Accept", "application/json");
 		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
-		pksRestTemplate.exchange("https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, HttpMethod.DELETE,
-				requestObject, String.class);
+		pksRestTemplate.exchange("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId,
+				HttpMethod.DELETE, requestObject, String.class);
 		return DeleteServiceInstanceResponse.builder().async(true).build();
 	}
 
@@ -111,20 +123,18 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 	}
 
 	public GetLastServiceOperationResponse getLastOperation(GetLastServiceOperationRequest request) {
-		String serviceInstanceId=request.getServiceInstanceId();
-		//serviceInstanceId="c98498ac-d1af-4cbb-8286-42c4b3958fe6";
+		String serviceInstanceId = request.getServiceInstanceId();
 		OperationState state = addonDeploymentRunnables.get(serviceInstanceId).getState();
-		String operationStateMessage=addonDeploymentRunnables.get(serviceInstanceId)
-				.getOperationStateMessage();
-		String lastPKSAction = addonDeploymentRunnables.get(serviceInstanceId).getAction();
+		String operationStateMessage = addonDeploymentRunnables.get(serviceInstanceId).getOperationStateMessage();
+		BrokerAction lastPKSAction = addonDeploymentRunnables.get(serviceInstanceId).getAction();
 		switch (lastPKSAction) {
-		case "CREATE":
+		case CREATE:
 			if (state.equals(OperationState.SUCCEEDED) || state.equals(OperationState.FAILED))
 				addonDeploymentRunnables.remove(serviceInstanceId);
 			break;
-		case "UPDATE":
+		case UPDATE:
 			break;
-		case "DELETE":
+		case DELETE:
 			break;
 		}
 		return GetLastServiceOperationResponse.builder().operationState(state).description(operationStateMessage)
