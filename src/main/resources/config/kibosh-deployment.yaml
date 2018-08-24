@@ -12,6 +12,7 @@ spec:
       labels:
         name: kibosh
     spec:
+      serviceAccount: kibosh-helm
       containers:
       - name: kibosh
         image: nouseforaname/kibosh:latest
@@ -21,13 +22,39 @@ spec:
         - containerPort: 8080
         - containerPort: 8081
         readinessProbe:
-        tcpSocket:
-          port: 8080
-        initialDelaySeconds: 5
-        periodSeconds: 10
-      livenessProbe:
-        tcpSocket:
-          port: 8080
-        initialDelaySeconds: 15
-        periodSeconds: 20
-      serviceAccount: kibosh-helm
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 20
+        env:
+        - name: BAZAAR_USER
+          valueFrom:
+            configMapKeyRef:
+             # The ConfigMap containing the value you want to assign to SPECIAL_LEVEL_KEY
+              name: cluster-addon-deployment-data
+              key: bazaar.user
+        - name: BAZAAR_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+             # The ConfigMap containing the value you want to assign to SPECIAL_LEVEL_KEY
+              name: cluster-addon-deployment-data
+              key: bazaar.password
+        - name: KIBOSH_USER
+          valueFrom:
+            configMapKeyRef:
+             # The ConfigMap containing the value you want to assign to SPECIAL_LEVEL_KEY
+              name: cluster-addon-deployment-data
+              key: kibosh.user
+        - name: KIBOSH_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+             # The ConfigMap containing the value you want to assign to SPECIAL_LEVEL_KEY
+              name: cluster-addon-deployment-data
+              key: kibosh.password
+        
+          
