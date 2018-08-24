@@ -3,6 +3,7 @@ package pksServiceBroker;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cloud.servicebroker.model.catalog.Catalog;
 import org.springframework.cloud.servicebroker.model.catalog.Plan;
 import org.springframework.cloud.servicebroker.model.catalog.ServiceDefinition;
 import org.springframework.cloud.servicebroker.model.instance.CreateServiceInstanceRequest;
@@ -30,11 +31,13 @@ import pksServiceBroker.Config.RoutingLayer;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.logging.Logger;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 @Service
 public class PKSServiceInstanceService implements ServiceInstanceService {
-	private static Logger LOG = Logger.getLogger(PKSServiceInstanceService.class.getName());
+	private static Logger LOG = LogManager.getLogger(PKSServiceInstanceService.class);
 
 	@Autowired
 	@Qualifier("pks")
@@ -50,6 +53,9 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 	@Autowired
 	private ApplicationContext appContext;
 
+	@Autowired
+	Catalog catalog;
+
 	private static HashMap<String, PKSServiceInstanceAddonDeploymentsRunnable> addonDeploymentRunnables = new HashMap<>(
 			0);
 
@@ -58,16 +64,19 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 
 		String planName = getPlan(request.getPlanId(), request.getServiceDefinition()).getName();
 
-		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
+		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)
+				|| !addonDeploymentRunnables.get(serviceInstanceId).getState().equals(OperationState.IN_PROGRESS)) {
 			addonDeploymentRunnables.put(serviceInstanceId,
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
 							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();
+			thread.setName(serviceInstanceId);
 			LOG.info(request.getOriginatingIdentity() + " requested creation of "
 					+ request.getServiceDefinition().getName() + " with ID " + serviceInstanceId + " for "
 					+ request.getContext());
 		}
+
 		Map<String, String> clusterConfigData = addonDeploymentRunnables.get(serviceInstanceId).getClusterConfigMap()
 				.getData();
 		JSONObject dashboards = new JSONObject();
@@ -87,19 +96,18 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 
 	public UpdateServiceInstanceResponse updateServiceInstance(UpdateServiceInstanceRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
-		// serviceInstanceId="c98498ac-d1af-4cbb-8286-42c4b3958fe6";
-		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
-			addonDeploymentRunnables.put(serviceInstanceId, (PKSServiceInstanceAddonDeploymentsRunnable) appContext
-					.getBean("addonDeploymentRunnable", "UPDATE", request));
+		String planName = "";
+		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)
+				|| !addonDeploymentRunnables.get(serviceInstanceId).getState().equals(OperationState.IN_PROGRESS)) {
+			addonDeploymentRunnables.put(serviceInstanceId,
+					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
+							BrokerAction.UPDATE, serviceInstanceId, planName, RoutingLayer.HTTP));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();
 			LOG.info(request.getOriginatingIdentity() + " requested update of "
 					+ request.getServiceDefinition().getName() + " with ID " + serviceInstanceId + " for "
 					+ request.getContext());
-		} else {
-			return UpdateServiceInstanceResponse.builder().async(false).build();
 		}
-
 		return UpdateServiceInstanceResponse.builder().async(true).build();
 	}
 
@@ -120,13 +128,30 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 	}
 
 	public GetServiceInstanceResponse getServiceInstance(GetServiceInstanceRequest request) {
-		// String serviceInstanceId = request.getServiceInstanceId();
-		//
-		// retrieve the details of the specified service instance
-		//
-		String dashboardUrl = new String(/* retrieve dashboard URL */);
+		String serviceInstanceId = request.getServiceInstanceId();
 
-		return GetServiceInstanceResponse.builder().dashboardUrl(dashboardUrl).build();
+		String planName = "";
+
+		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
+			addonDeploymentRunnables.put(serviceInstanceId,
+					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
+							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP));
+		}
+		Map<String, String> clusterConfigData = addonDeploymentRunnables.get(serviceInstanceId).getClusterConfigMap()
+				.getData();
+		JSONObject dashboards = new JSONObject();
+		String KUBE_API_HTTP_ADDR = clusterConfigData.get("kubernetes.protocoll")
+				+ clusterConfigData.get("kubernetes.fqdn") + ":" + clusterConfigData.get("kubernetes.port");
+		String BAZAAR_API_HTTP_ADDR = clusterConfigData.get("bazaar.protocoll") + clusterConfigData.get("bazaar.fqdn")
+				+ ":" + clusterConfigData.get("bazaar.port");
+
+		String KIBOSH_API_HTTP_ADDR = clusterConfigData.get("kibosh.protocoll") + clusterConfigData.get("kibosh.fqdn")
+				+ ":" + clusterConfigData.get("kibosh.port");
+		dashboards.put("kube_api", KUBE_API_HTTP_ADDR);
+		dashboards.put("kibosh_service_broker", KIBOSH_API_HTTP_ADDR);
+		dashboards.put("kibosh_bazaar_endpoint", BAZAAR_API_HTTP_ADDR);
+
+		return GetServiceInstanceResponse.builder().dashboardUrl(dashboards.toString()).build();
 	}
 
 	public GetLastServiceOperationResponse getLastOperation(GetLastServiceOperationRequest request) {
@@ -134,10 +159,10 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		OperationState state = addonDeploymentRunnables.get(serviceInstanceId).getState();
 		String operationStateMessage = addonDeploymentRunnables.get(serviceInstanceId).getOperationStateMessage();
 		BrokerAction lastPKSAction = addonDeploymentRunnables.get(serviceInstanceId).getAction();
+		System.err.println(lastPKSAction);
 		switch (lastPKSAction) {
 		case CREATE:
-			if (state.equals(OperationState.SUCCEEDED) || state.equals(OperationState.FAILED))
-				addonDeploymentRunnables.remove(serviceInstanceId);
+
 			break;
 		case UPDATE:
 			break;
@@ -145,6 +170,10 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 			break;
 		case DELETE:
 			break;
+		}
+		if (state.equals(OperationState.SUCCEEDED) || state.equals(OperationState.FAILED)) {
+			LOG.info("Completed " + lastPKSAction + " of PKS Cluster: " + serviceInstanceId + " with " + state);
+			addonDeploymentRunnables.remove(serviceInstanceId);
 		}
 		return GetLastServiceOperationResponse.builder().operationState(state).description(operationStateMessage)
 				.build();

@@ -40,7 +40,9 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.io.FileNotFoundException;
-import java.util.logging.Logger;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 @Configuration
 @EnableConfigurationProperties
@@ -66,7 +68,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private static String kiboshServiceFilename = "config/kibosh-service.yaml";
 	private static String bazaarServiceFilename = "config/kibosh-bazaar-service.yaml";
 
-	private static final Logger LOG = Logger.getLogger(PKSServiceInstanceAddonDeploymentsRunnable.class.getName());
+	
+	private static Logger LOG = LogManager.getLogger(PKSServiceInstanceAddonDeploymentsRunnable.class);
 
 	private String operationStateMessage;
 	private OperationState state;
@@ -105,8 +108,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		runner.serviceInstanceId = serviceInstanceId;
 		runner.kiboshRoutingLayer = kiboshRoutingLayer;
 		runner.pksPlanName = planName;
-		// DEBUG OVERRIDE
-//		runner.setServiceInstanceId("31d11b48-ad6d-4258-8441-08b355dcdb73");
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.add("Host", sbConfig.PKS_FQDN + ":9021");
@@ -214,7 +215,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				runner.setClusterConfigMap(
 						client.configMaps().withName("cluster-addon-deployment-data").fromServer().get());
 			} catch (Exception e) {
-				LOG.severe("PKS Cluster " + runner.serviceInstanceId + " has no ConfigMap yet. Run UPDATE");
+				LOG.error("PKS Cluster " + runner.serviceInstanceId + " has no ConfigMap yet. Run UPDATE");
 			}
 		default:
 			break;
@@ -250,7 +251,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (runner.kiboshRoutingLayer.equals(RoutingLayer.TCP)) {
 			runner.kiboshExternalPort = getFreePortForCFTcpRouter();
 			runner.bazaarExternalPort = getFreePortForCFTcpRouter();
-			LOG.fine("Reserving Kibosh Port " + runner.kiboshExternalPort + "; Bazaar Port: "
+			LOG.debug("Reserving Kibosh Port " + runner.kiboshExternalPort + "; Bazaar Port: "
 					+ runner.bazaarExternalPort);
 		}
 		clusterConfigMap.getData().put("kibosh.fqdn",
@@ -414,7 +415,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					+ serviceInstanceId);
 
 		} else {
-			LOG.severe("Loaded resource is not a Deployment! Could not create RouteReg Deployment for " + componentName
+			LOG.error("Loaded resource is not a Deployment! Could not create RouteReg Deployment for " + componentName
 					+ " on PKS Cluster " + serviceInstanceId);
 		}
 		client.close();
@@ -443,13 +444,13 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.info("Created Kibosh Helm Service Account for PKS Cluster " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
-				LOG.severe("Error Creating Service Account " + kiboshRBACAccount.toString() + " on PKS Cluster "
+				LOG.error("Error Creating Service Account " + kiboshRBACAccount.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
 				e.printStackTrace();
 			}
 		} else {
 			state = OperationState.FAILED;
-			LOG.severe("Loaded resource is not an Account! " + serviceInstanceId);
+			LOG.error("Loaded resource is not an Account! " + serviceInstanceId);
 		}
 		if (kiboshDeployment instanceof Deployment) {
 			try {
@@ -457,13 +458,13 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.info("Created Kibosh Deployment on PKS Cluster " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
-				LOG.severe("Error Creating Kibosh Deployment " + kiboshDeployment.toString() + " on PKS Cluster "
+				LOG.error("Error Creating Kibosh Deployment " + kiboshDeployment.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
 				e.printStackTrace();
 			}
 		} else {
 			state = OperationState.FAILED;
-			LOG.severe("Loaded resource is not a Deployment! " + serviceInstanceId);
+			LOG.error("Loaded resource is not a Deployment! " + serviceInstanceId);
 		}
 
 		if (kiboshBazaarService instanceof Service) {
@@ -472,12 +473,12 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.info("Created Bazaar Service on PKS Custer " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
-				LOG.severe("Failed creating Bazaar Service on PKS Custer " + serviceInstanceId);
+				LOG.error("Failed creating Bazaar Service on PKS Custer " + serviceInstanceId);
 				e.printStackTrace();
 			}
 		} else {
 			state = OperationState.FAILED;
-			LOG.severe("Loaded resource is not a Service!" + serviceInstanceId);
+			LOG.error("Loaded resource is not a Service!" + serviceInstanceId);
 		}
 		if (kiboshService instanceof Service) {
 			try {
@@ -485,27 +486,27 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.info("Created KIBOSH Service on PKS Custer " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
-				LOG.severe("Failed creating KIBOSH Service on PKS Custer " + serviceInstanceId);
+				LOG.error("Failed creating KIBOSH Service on PKS Custer " + serviceInstanceId);
 				e.printStackTrace();
 			}
 
 		} else {
 			state = OperationState.FAILED;
-			LOG.severe("Loaded resource is not a Service! " + serviceInstanceId);
+			LOG.error("Loaded resource is not a Service! " + serviceInstanceId);
 		}
 		if (kiboshRBACBinding instanceof KubernetesClusterRoleBinding) {
 			try {
 				client.rbac().kubernetesClusterRoleBindings().createOrReplace(kiboshRBACBinding);
 				LOG.info("Created Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
-				LOG.severe("Failed Creating Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
+				LOG.error("Failed Creating Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
 				state = OperationState.FAILED;
 				e.printStackTrace();
 			}
 
 		} else {
 			state = OperationState.FAILED;
-			LOG.severe("Loaded resource is not a Role Binding! " + serviceInstanceId);
+			LOG.error("Loaded resource is not a Role Binding! " + serviceInstanceId);
 		}
 
 		JSONArray nodeIPs = new JSONArray();
@@ -513,7 +514,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			nodeIPs.put(node.getStatus().getAddresses().get(0).getAddress());
 		});
 
-		LOG.fine("Will use NodeIPs: " + nodeIPs.toString() + " for route Registration on PKS Cluster: "
+		LOG.debug("Will use NodeIPs: " + nodeIPs.toString() + " for route Registration on PKS Cluster: "
 				+ serviceInstanceId);
 		createRouteRegDeployment(jsonClusterContext, kiboshService.getSpec().getPorts().get(0).getNodePort(),
 				nodeIPs.toList(), kiboshExternalPort, pksServiceBroker.Config.KIBOSH_NAME, kiboshRoutingLayer);
@@ -531,7 +532,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		// SWITCH TO HANDLE CHANGES IN WORKFLOWS
 		switch (action) {
 		case CREATE:
-			LOG.fine("Create PKS Cluster for ServiceID " + serviceInstanceId + " Requestobject: "
+			LOG.debug("Create PKS Cluster for ServiceID " + serviceInstanceId + " Requestobject: "
 					+ pksRequestObject.toString());
 			pksRestTemplate.postForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters", pksRequestObject,
 					String.class);
@@ -548,7 +549,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
 			try {
 				master_ips = (JSONArray) jsonClusterInfo.get("kubernetes_master_ips");
-				LOG.fine("PKS Cluster " + serviceInstanceId + " deployment in progress."
+				LOG.debug("PKS Cluster " + serviceInstanceId + " deployment in progress."
 						+ jsonClusterInfo.getString("last_action_description"));
 				this.state = jsonClusterInfo.get("last_action_state").equals("failed") ? OperationState.FAILED
 						: OperationState.IN_PROGRESS;
@@ -559,7 +560,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				case "404":
 					LOG.info("PKS Cluster: " + serviceInstanceId + " could not be found");
 				case "401":
-					LOG.severe("Broker could not authenticate with PKS API");
+					LOG.error("Broker could not authenticate with PKS API");
 					break;
 				default:
 					break;
@@ -583,7 +584,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				.getForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
 
 		// GET CLUSTER CONTEXT
-		LOG.fine("Getting credentials for " + serviceInstanceId);
+		LOG.debug("Getting credentials for " + serviceInstanceId);
 		JSONObject jsonClusterContext = new JSONObject(pksRestTemplate.postForObject(
 				"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", pksRequestObject,
 				String.class));
@@ -594,21 +595,21 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (clusterConfigMap instanceof ConfigMap) {
 			try {
 				clusterConfigMap = client.configMaps().createOrReplace(clusterConfigMap);
-				LOG.info("Created Kibosh Helm Service Account for PKS Cluster " + serviceInstanceId);
+				LOG.info("Created Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
-				LOG.severe("Error Creating Config Map" + clusterConfigMap.toString() + " on PKS Cluster "
+				LOG.error("Error Creating Config Map" + clusterConfigMap.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
-				e.printStackTrace();
+				LOG.error(e);
 			}
 		} else {
-			LOG.severe("ConfigMap not found, something went wrong in initialization");
+			LOG.error("ConfigMap not found, something went wrong in initialization");
 		}
 
 		// CREATE ROUTE REG DEPLOYMENT FOR MASTER
 		try {
 			operationStateMessage = "Cluster created, creating route emitter pod";
-			LOG.info("Deploying Addongs on PKS Cluster " + serviceInstanceId);
+			LOG.info("Deploying Addons on PKS Cluster " + serviceInstanceId);
 			createRouteRegDeployment(jsonClusterContext, pksServiceBroker.Config.KUBERNETES_MASTER_PORT,
 					jsonClusterInfo.getJSONArray("kubernetes_master_ips").toList(),
 					jsonClusterInfo.getJSONObject("parameters").getInt("kubernetes_master_port"), "master",
@@ -638,7 +639,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		operationStateMessage = "finished deployment";
 		state = OperationState.SUCCEEDED;
-
+		client.close();
 	}
 
 	// GETTER & SETTER Block

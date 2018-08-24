@@ -10,6 +10,7 @@ import org.springframework.cloud.servicebroker.model.catalog.Catalog;
 import org.springframework.cloud.servicebroker.model.catalog.Plan;
 import org.springframework.cloud.servicebroker.model.catalog.ServiceDefinition;
 import org.springframework.cloud.servicebroker.service.CatalogService;
+import org.springframework.context.annotation.Bean;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +34,7 @@ public class PKSCatalogConfig implements CatalogService{
 	private Boolean bindable; 
 	
 	@Override
+	@Bean
 	public Catalog getCatalog() {
 		return Catalog.builder().serviceDefinitions(getServiceDefinition(id)).build();
 	}
