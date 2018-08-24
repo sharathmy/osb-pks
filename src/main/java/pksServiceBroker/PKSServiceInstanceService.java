@@ -3,6 +3,8 @@ package pksServiceBroker;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cloud.servicebroker.model.catalog.Plan;
+import org.springframework.cloud.servicebroker.model.catalog.ServiceDefinition;
 import org.springframework.cloud.servicebroker.model.instance.CreateServiceInstanceRequest;
 import org.springframework.cloud.servicebroker.model.instance.CreateServiceInstanceResponse;
 import org.springframework.cloud.servicebroker.model.instance.DeleteServiceInstanceRequest;
@@ -26,6 +28,7 @@ import pksServiceBroker.Config.BrokerAction;
 import pksServiceBroker.Config.RoutingLayer;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -52,9 +55,13 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 
 	public CreateServiceInstanceResponse createServiceInstance(CreateServiceInstanceRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
+
+		String planName = getPlan(request.getPlanId(), request.getServiceDefinition()).getName();
+
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
-			addonDeploymentRunnables.put(serviceInstanceId, (PKSServiceInstanceAddonDeploymentsRunnable) appContext
-					.getBean("addonDeploymentRunnable", Config.BrokerAction.CREATE, request, RoutingLayer.TCP));
+			addonDeploymentRunnables.put(serviceInstanceId,
+					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
+							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();
 			LOG.info(request.getOriginatingIdentity() + " requested creation of "
@@ -72,8 +79,8 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		String KIBOSH_API_HTTP_ADDR = clusterConfigData.get("kibosh.protocoll") + clusterConfigData.get("kibosh.fqdn")
 				+ ":" + clusterConfigData.get("kibosh.port");
 		dashboards.put("kube_api", KUBE_API_HTTP_ADDR);
-		dashboards.put("kibosh_service_broker", BAZAAR_API_HTTP_ADDR);
-		dashboards.put("kibosh_bazaar_enpoindt", KIBOSH_API_HTTP_ADDR);
+		dashboards.put("kibosh_service_broker", KIBOSH_API_HTTP_ADDR);
+		dashboards.put("kibosh_bazaar_endpoint", BAZAAR_API_HTTP_ADDR);
 
 		return CreateServiceInstanceResponse.builder().dashboardUrl(dashboards.toString()).async(true).build();
 	}
@@ -134,11 +141,24 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 			break;
 		case UPDATE:
 			break;
+		case GET:
+			break;
 		case DELETE:
 			break;
 		}
 		return GetLastServiceOperationResponse.builder().operationState(state).description(operationStateMessage)
 				.build();
+	}
+
+	private Plan getPlan(String planId, ServiceDefinition serviceDef) {
+		Iterator<Plan> it = serviceDef.getPlans().iterator();
+		while (it.hasNext()) {
+			Plan plan = it.next();
+			if (planId.equals(plan.getId())) {
+				return plan;
+			}
+		}
+		return null;
 	}
 
 }

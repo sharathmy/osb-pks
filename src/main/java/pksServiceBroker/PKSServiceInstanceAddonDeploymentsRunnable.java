@@ -23,9 +23,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.cloud.servicebroker.model.catalog.Plan;
-import org.springframework.cloud.servicebroker.model.catalog.ServiceDefinition;
-import org.springframework.cloud.servicebroker.model.instance.CreateServiceInstanceRequest;
 import org.springframework.cloud.servicebroker.model.instance.OperationState;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -36,7 +33,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Random;
@@ -86,8 +82,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private HttpEntity<String> routeRequestObject;
 	private HttpEntity<String> pksRequestObject;
 	private String serviceInstanceId;
-	private String kiboshExternalHostname;
-	private String bazaarExternalHostname;
+	private String pksPlanName;
 	@Autowired
 	@Qualifier("pks")
 	OAuth2RestTemplate pksRestTemplate;
@@ -98,20 +93,20 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	private ConfigMap clusterConfigMap;
 
-	// CONSTRUCTOR BLOCK
 	@Bean(name = "addonDeploymentRunnable")
 	@Scope(value = "prototype")
 	public PKSServiceInstanceAddonDeploymentsRunnable getPKSServiceInstanceAddonDeploymentsRunnable(BrokerAction action,
-			CreateServiceInstanceRequest request, RoutingLayer kiboshRoutingLayer) {
+			String serviceInstanceId, String planName, RoutingLayer kiboshRoutingLayer) {
 		PKSServiceInstanceAddonDeploymentsRunnable runner = new PKSServiceInstanceAddonDeploymentsRunnable();
 		// INITIALIZATION
 		runner.state = OperationState.IN_PROGRESS;
 		runner.operationStateMessage = "Preparing deployment";
-		runner.setAction(action);
-		runner.setServiceInstanceId(request.getServiceInstanceId());
-
+		runner.action = action;
+		runner.serviceInstanceId = serviceInstanceId;
+		runner.kiboshRoutingLayer = kiboshRoutingLayer;
+		runner.pksPlanName = planName;
 		// DEBUG OVERRIDE
-//		runner.setServiceInstanceId("74c37eaa-8422-4beb-b6a7-28203aa2ccf9");
+//		runner.setServiceInstanceId("31d11b48-ad6d-4258-8441-08b355dcdb73");
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.add("Host", sbConfig.PKS_FQDN + ":9021");
@@ -119,59 +114,108 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		headers.add("Content-Type", "application/json");
 		headers.add("Authorization", "Bearer " + pksRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
-		runner.setPksHeaders(headers);
+		runner.pksHeaders = headers;
 		headers = new HttpHeaders();
 		headers.add("Accept", "application/json");
 		headers.add("Content-Type", "application/json");
 		headers.add("Authorization", "Bearer " + routeRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
-		runner.setRouteHeaders(headers);
+		runner.routeHeaders = headers;
 
-		runner.kiboshRoutingLayer = kiboshRoutingLayer;
-		runner.setPksRequestObject(new HttpEntity<String>("", runner.getPksHeaders()));
-		runner.setRouteRequestObject(new HttpEntity<String>("", runner.getRouteHeaders()));
-
-		switch (action) {
+		runner.pksRequestObject = new HttpEntity<String>("", runner.pksHeaders);
+		runner.routeRequestObject = new HttpEntity<String>("", runner.routeHeaders);
+		JSONArray master_ips;
+		switch (runner.action) {
 		case UPDATE:
-			runner.setJsonClusterInfo(new JSONObject(pksRestTemplate.getForObject(
-					"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + runner.getServiceInstanceId(),
-					String.class)));
-			JSONArray master_ips = (JSONArray) runner.jsonClusterInfo.get("kubernetes_master_ips");
-			runner.setKubeExternalPort(
-					runner.getJsonClusterInfo().getJSONObject("parameters").getInt("kubernetes_master_port"));
+			runner.jsonClusterInfo = new JSONObject(pksRestTemplate.getForObject(
+					"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + runner.serviceInstanceId, String.class));
+			master_ips = (JSONArray) runner.jsonClusterInfo.get("kubernetes_master_ips");
+			runner.kubeExternalPort = runner.jsonClusterInfo.getJSONObject("parameters")
+					.getInt("kubernetes_master_port");
 
 			// CHECK CLUSTER FOR CONFIGMAP DATA, IF NONE CREATE CONFIGMAP WITH CLUSTER DATA
 			// WRITE TO CLUSTER
 			try {
-				JSONObject jsonClusterContext = new JSONObject(
-						pksRestTemplate.postForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/"
-								+ runner.getServiceInstanceId() + "/binds", runner.pksRequestObject, String.class));
+				JSONObject jsonClusterContext = new JSONObject(pksRestTemplate.postForObject(
+						"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + runner.serviceInstanceId + "/binds",
+						runner.pksRequestObject, String.class));
 				jsonClusterContext.put("master_ip", master_ips.getString(0));
 				refreshClient(jsonClusterContext, true, true);
-				LOG.info("ConfigMap with ClusterData found on PKS Cluster " + runner.getServiceInstanceId());
+				LOG.info("ConfigMap with ClusterData found on PKS Cluster " + runner.serviceInstanceId);
 				runner.setClusterConfigMap(
 						client.configMaps().withName("cluster-addon-deployment-data").fromServer().get());
-				runner.kiboshRoutingLayer = runner.clusterConfigMap.getData().get("kibosh.fqdn")
-						.equals(sbConfig.TCP_FQDN) ? RoutingLayer.TCP : RoutingLayer.HTTP;
-				runner.kiboshExternalPort = runner.clusterConfigMap.getData().get("kibosh.fqdn").equals(
-						sbConfig.TCP_FQDN) ? Integer.valueOf(runner.clusterConfigMap.getData().get("kibosh.port")) : 0;
-				runner.bazaarExternalPort = runner.clusterConfigMap.getData().get("bazaar.fqdn").equals(
-						sbConfig.TCP_FQDN) ? Integer.valueOf(runner.clusterConfigMap.getData().get("bazaar.port")) : 0;
-
+				switch (runner.kiboshRoutingLayer) {
+				case HTTP:
+					runner.kiboshExternalPort = 0;
+					runner.bazaarExternalPort = 0;
+					runner.clusterConfigMap.getData().put("bazaar.port",
+							runner.bazaarExternalPort == 0 ? "443" : String.valueOf(runner.bazaarExternalPort));
+					runner.clusterConfigMap.getData().put("kibosh.port",
+							runner.kiboshExternalPort == 0 ? "443" : String.valueOf(runner.kiboshExternalPort));
+					break;
+				case TCP:
+					runner.kiboshExternalPort = Integer
+							.valueOf(runner.clusterConfigMap.getData().get("kibosh.port")) == 443
+									? getFreePortForCFTcpRouter()
+									: Integer.valueOf(runner.clusterConfigMap.getData().get("kibosh.port"));
+					runner.bazaarExternalPort = Integer
+							.valueOf(runner.clusterConfigMap.getData().get("bazaar.port")) == 443
+									? getFreePortForCFTcpRouter()
+									: Integer.valueOf(runner.clusterConfigMap.getData().get("bazaar.port"));
+					runner.clusterConfigMap.getData().put("bazaar.port", String.valueOf(runner.bazaarExternalPort));
+					runner.clusterConfigMap.getData().put("kibosh.port", String.valueOf(runner.kiboshExternalPort));
+					break;
+				default:
+					break;
+				}
+				String prefix = runner.kiboshRoutingLayer.equals(RoutingLayer.HTTP) ? "https://" : "http://";
+				runner.clusterConfigMap.getData().put("kibosh.fqdn",
+						getComponentHostname(pksServiceBroker.Config.KIBOSH_NAME, runner));
+				runner.clusterConfigMap.getData().put("bazaar.fqdn",
+						getComponentHostname(pksServiceBroker.Config.BAZAAR_NAME, runner));
+				runner.clusterConfigMap.getData().put("kibosh.protocoll", prefix);
+				runner.clusterConfigMap.getData().put("bazaar.protocoll", prefix);
 			} catch (Exception e) {
+				if (runner.kiboshRoutingLayer.equals(RoutingLayer.TCP)) {
+					runner.kiboshExternalPort = getFreePortForCFTcpRouter();
+					runner.bazaarExternalPort = getFreePortForCFTcpRouter();
+				}
 				runner.clusterConfigMap = createConfigMap(runner);
 			}
 
 			break;
 		case CREATE:
-			runner.setKubeExternalPort(getFreePortForCFTcpRouter());
-			JSONObject payload = new JSONObject().put("name", runner.getServiceInstanceId())
-					.put("plan_name", getPlan(request.getPlanId(), request.getServiceDefinition()).getName())
+			runner.kubeExternalPort = getFreePortForCFTcpRouter();
+			JSONObject payload = new JSONObject().put("name", runner.serviceInstanceId)
+					.put("plan_name", runner.pksPlanName)
 					.put("parameters", new JSONObject().put("kubernetes_master_host", sbConfig.TCP_FQDN)
-							.put("kubernetes_master_port", runner.getKubeExternalPort()));
-			runner.setPksRequestObject(new HttpEntity<String>(payload.toString(), runner.getPksHeaders()));
+							.put("kubernetes_master_port", runner.kubeExternalPort));
+			runner.pksRequestObject = new HttpEntity<String>(payload.toString(), runner.pksHeaders);
 			runner.clusterConfigMap = createConfigMap(runner);
 			break;
+		case GET:
+			LOG.info("Retrieving Cluster Info for PKS Cluster: " + runner.serviceInstanceId + " from "
+					+ sbConfig.PKS_FQDN);
+			runner.jsonClusterInfo = new JSONObject(pksRestTemplate.getForObject(
+					"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + runner.serviceInstanceId, String.class));
+			master_ips = (JSONArray) runner.jsonClusterInfo.get("kubernetes_master_ips");
+			runner.kubeExternalPort = runner.jsonClusterInfo.getJSONObject("parameters")
+					.getInt("kubernetes_master_port");
+
+			// CHECK CLUSTER FOR CONFIGMAP DATA, IF NONE CREATE CONFIGMAP WITH CLUSTER DATA
+			// WRITE TO CLUSTER
+			try {
+				JSONObject jsonClusterContext = new JSONObject(pksRestTemplate.postForObject(
+						"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + runner.serviceInstanceId + "/binds",
+						runner.pksRequestObject, String.class));
+				jsonClusterContext.put("master_ip", master_ips.get(0));
+				refreshClient(jsonClusterContext, true, true);
+				LOG.info("ConfigMap with ClusterData found on PKS Cluster " + runner.serviceInstanceId);
+				runner.setClusterConfigMap(
+						client.configMaps().withName("cluster-addon-deployment-data").fromServer().get());
+			} catch (Exception e) {
+				LOG.severe("PKS Cluster " + runner.serviceInstanceId + " has no ConfigMap yet. Run UPDATE");
+			}
 		default:
 			break;
 		}
@@ -184,28 +228,40 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		this.operationStateMessage = "Started Deployment";
 	}
 
+	private String getComponentHostname(String componentName, PKSServiceInstanceAddonDeploymentsRunnable runner) {
+		switch (runner.kiboshRoutingLayer) {
+		case TCP:
+			return sbConfig.TCP_FQDN;
+		case HTTP:
+			return componentName + "-" + runner.serviceInstanceId + "." + sbConfig.APPS_FQDN;
+		default:
+			break;
+		}
+
+		return "";
+	}
+
 	private ConfigMap createConfigMap(PKSServiceInstanceAddonDeploymentsRunnable runner) {
-		LOG.info("Config Map not found on PKS Cluster " + runner.getServiceInstanceId() + ". Creating...");
+		LOG.info("Config Map not found on PKS Cluster " + runner.serviceInstanceId + ". Creating...");
 		ConfigMap clusterConfigMap = runner.client.configMaps().load(PKSServiceInstanceAddonDeploymentsRunnable.class
 				.getClassLoader().getResourceAsStream(clusterConfigMapFilename)).get();
 
 		String prefix = runner.kiboshRoutingLayer.equals(RoutingLayer.HTTP) ? "https://" : "http://";
-
+		if (runner.kiboshRoutingLayer.equals(RoutingLayer.TCP)) {
+			runner.kiboshExternalPort = getFreePortForCFTcpRouter();
+			runner.bazaarExternalPort = getFreePortForCFTcpRouter();
+			LOG.fine("Reserving Kibosh Port " + runner.kiboshExternalPort + "; Bazaar Port: "
+					+ runner.bazaarExternalPort);
+		}
 		clusterConfigMap.getData().put("kibosh.fqdn",
-				runner.kiboshRoutingLayer.equals(RoutingLayer.HTTP)
-						? pksServiceBroker.Config.KIBOSH_NAME + "-" + runner.getServiceInstanceId() + "."
-								+ sbConfig.APPS_FQDN
-						: sbConfig.TCP_FQDN);
+				getComponentHostname(pksServiceBroker.Config.KIBOSH_NAME, runner));
 		clusterConfigMap.getData().put("kibosh.port",
 				runner.kiboshExternalPort == 0 ? "443" : Integer.toString(runner.kiboshExternalPort));
 		clusterConfigMap.getData().put("kibosh.user", java.util.UUID.randomUUID().toString());
 		clusterConfigMap.getData().put("kibosh.password", java.util.UUID.randomUUID().toString());
 		clusterConfigMap.getData().put("kibosh.protocoll", prefix);
 		clusterConfigMap.getData().put("bazaar.fqdn",
-				runner.kiboshRoutingLayer.equals(RoutingLayer.HTTP)
-						? pksServiceBroker.Config.BAZAAR_NAME + "-" + runner.getServiceInstanceId() + "."
-								+ sbConfig.APPS_FQDN
-						: sbConfig.TCP_FQDN);
+				getComponentHostname(pksServiceBroker.Config.KIBOSH_NAME, runner));
 		clusterConfigMap.getData().put("bazaar.user", java.util.UUID.randomUUID().toString());
 		clusterConfigMap.getData().put("bazaar.password", java.util.UUID.randomUUID().toString());
 		clusterConfigMap.getData().put("bazaar.port",
@@ -477,6 +533,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		case CREATE:
 			LOG.fine("Create PKS Cluster for ServiceID " + serviceInstanceId + " Requestobject: "
 					+ pksRequestObject.toString());
+			System.err.println(pksRequestObject);
+			System.err.println(sbConfig.PKS_FQDN);
 			pksRestTemplate.postForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters", pksRequestObject,
 					String.class);
 			break;
@@ -533,7 +591,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				String.class));
 
 		jsonClusterContext.put("master_ip", master_ips.getString(0));
-
+		refreshClient(jsonClusterContext, true, true);
 		// CREATE CONFIGMAP
 		if (clusterConfigMap instanceof ConfigMap) {
 			try {
@@ -541,7 +599,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.info("Created Kibosh Helm Service Account for PKS Cluster " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
-				LOG.severe("Error Creating Service Account " + clusterConfigMap.toString() + " on PKS Cluster "
+				LOG.severe("Error Creating Config Map" + clusterConfigMap.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
 				e.printStackTrace();
 			}
@@ -590,10 +648,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		return action;
 	}
 
-	public void setAction(BrokerAction action) {
-		this.action = action;
-	}
-
 	public OperationState getState() {
 		return state;
 	}
@@ -602,139 +656,11 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		return operationStateMessage;
 	}
 
-	public HttpHeaders getPksHeaders() {
-		return pksHeaders;
-	}
-
-	public void setPksHeaders(HttpHeaders pksHeaders) {
-		this.pksHeaders = pksHeaders;
-	}
-
-	public HttpHeaders getRouteHeaders() {
-		return routeHeaders;
-	}
-
-	public void setRouteHeaders(HttpHeaders routeHeaders) {
-		this.routeHeaders = routeHeaders;
-	}
-
-	public HttpEntity<String> getRouteRequestObject() {
-		return routeRequestObject;
-	}
-
-	public void setRouteRequestObject(HttpEntity<String> routeRequestObject) {
-		this.routeRequestObject = routeRequestObject;
-	}
-
-	public HttpEntity<String> getPksRequestObject() {
-		return pksRequestObject;
-	}
-
-	public void setPksRequestObject(HttpEntity<String> pksRequestObject) {
-		this.pksRequestObject = pksRequestObject;
-	}
-
-	public void setServiceInstanceId(String serviceInstanceId) {
-		this.serviceInstanceId = serviceInstanceId;
-	}
-
-	public JSONObject getJsonClusterInfo() {
-		return jsonClusterInfo;
-	}
-
-	public void setJsonClusterInfo(JSONObject jsonClusterInfo) {
-		this.jsonClusterInfo = jsonClusterInfo;
-	}
-
-	public int getKubeExternalPort() {
-		return kubeExternalPort;
-	}
-
-	private String getServiceInstanceId() {
-		// TODO Auto-generated method stub
-		return this.serviceInstanceId;
-	}
-
-	private void setKubeExternalPort(int kubeExternalPort) {
-		this.kubeExternalPort = kubeExternalPort;
-	}
-
-	public int getKiboshExternalPort() {
-		return kiboshExternalPort;
-	}
-
-	public void setKiboshExternalPort(int kiboshExternalPort) {
-		this.kiboshExternalPort = kiboshExternalPort;
-	}
-
-	public int getBazaarExternalPort() {
-		return bazaarExternalPort;
-	}
-
-	public void setBazaarExternalPort(int bazaarExternalPort) {
-		this.bazaarExternalPort = bazaarExternalPort;
-	}
-
-	private Plan getPlan(String planId, ServiceDefinition serviceDef) {
-		Iterator<Plan> it = serviceDef.getPlans().iterator();
-		while (it.hasNext()) {
-			Plan plan = it.next();
-			if (planId.equals(plan.getId())) {
-				return plan;
-			}
-		}
-		return null;
-	}
-
-	public RoutingLayer getKiboshRoutingLayer() {
-		return kiboshRoutingLayer;
-	}
-
-	public void setKiboshRoutingLayer(RoutingLayer routingLayer) {
-
-		switch (routingLayer) {
-		case HTTP:
-			this.setBazaarExternalHostname("https://" + pksServiceBroker.Config.BAZAAR_NAME + "-" + serviceInstanceId
-					+ "." + sbConfig.APPS_FQDN);
-			this.setKiboshExternalHostname("https://" + pksServiceBroker.Config.KIBOSH_NAME + "-" + serviceInstanceId
-					+ "." + sbConfig.APPS_FQDN);
-			break;
-
-		case TCP:
-			this.bazaarExternalPort = getFreePortForCFTcpRouter();
-			this.kiboshExternalPort = getFreePortForCFTcpRouter();
-			this.setBazaarExternalHostname("http://" + sbConfig.TCP_FQDN + ":" + bazaarExternalPort);
-			this.setKiboshExternalHostname("http://" + sbConfig.TCP_FQDN + ":" + kiboshExternalPort);
-			break;
-		}
-
-		this.kiboshRoutingLayer = routingLayer;
-		LOG.fine("Setting Routinglayer to " + routingLayer + " for Kibosh on Cluster " + serviceInstanceId);
-		LOG.fine("Kibosh on Cluster " + serviceInstanceId + " will be available at Kibosh: " + kiboshExternalHostname
-				+ " Bazaar: " + bazaarExternalHostname);
-	}
-
-	public String getBazaarExternalHostname() {
-		return bazaarExternalHostname;
-	}
-
-	public void setBazaarExternalHostname(String bazaarExternalHostname) {
-		this.bazaarExternalHostname = bazaarExternalHostname;
-	}
-
-	public String getKiboshExternalHostname() {
-		return kiboshExternalHostname;
-	}
-
-	public void setKiboshExternalHostname(String kiboshExternalHostname) {
-		this.kiboshExternalHostname = kiboshExternalHostname;
-	}
-
 	public ConfigMap getClusterConfigMap() {
 		return clusterConfigMap;
 	}
 
-	public void setClusterConfigMap(ConfigMap clusterConfigMap) {
+	private void setClusterConfigMap(ConfigMap clusterConfigMap) {
 		this.clusterConfigMap = clusterConfigMap;
 	}
 }

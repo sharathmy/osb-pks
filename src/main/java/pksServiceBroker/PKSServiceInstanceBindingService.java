@@ -14,10 +14,13 @@ import org.springframework.cloud.servicebroker.model.binding.GetServiceInstanceA
 import org.springframework.cloud.servicebroker.model.binding.GetServiceInstanceBindingRequest;
 import org.springframework.cloud.servicebroker.model.binding.GetServiceInstanceBindingResponse;
 import org.springframework.cloud.servicebroker.service.ServiceInstanceBindingService;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.stereotype.Service;
+
+import pksServiceBroker.Config.RoutingLayer;
 
 @Service
 public class PKSServiceInstanceBindingService implements ServiceInstanceBindingService {
@@ -36,6 +39,9 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 	@Qualifier("route")
 	OAuth2RestTemplate routeRestTemplate;
 
+	@Autowired
+	ApplicationContext appContext;
+
 	@Override
 	public CreateServiceInstanceBindingResponse createServiceInstanceBinding(
 			CreateServiceInstanceBindingRequest request) {
@@ -49,9 +55,15 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
 		LOG.info(request.getOriginatingIdentity() + " requested creation of Credentials PKS Cluster "
 				+ serviceInstanceId + " for " + request.getContext());
+		PKSServiceInstanceAddonDeploymentsRunnable runner = (PKSServiceInstanceAddonDeploymentsRunnable) appContext
+				.getBean("addonDeploymentRunnable", Config.BrokerAction.GET, serviceInstanceId, "", RoutingLayer.HTTP);
+		JSONObject clusterCredentials = new JSONObject(runner.getClusterConfigMap().getData());
 		JSONObject response = new JSONObject(pksRestTemplate.postForObject(
 				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
 				String.class));
+		System.err.println(response);
+		System.err.println(clusterCredentials);
+		response.put("pks-config-map", clusterCredentials);
 		return CreateServiceInstanceAppBindingResponse.builder().credentials("k8s_context", response.toMap())
 				.bindingExisted(false).build();
 	}
@@ -68,6 +80,14 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
 		LOG.info(request.getOriginatingIdentity() + " requested retrieval of Credentials PKS Cluster "
 				+ serviceInstanceId);
+		PKSServiceInstanceAddonDeploymentsRunnable runner = (PKSServiceInstanceAddonDeploymentsRunnable) appContext
+				.getBean("addonDeploymentRunnable", Config.BrokerAction.GET, serviceInstanceId, "", RoutingLayer.HTTP);
+		JSONObject clusterCredentials = new JSONObject(runner.getClusterConfigMap().getData());
+		JSONObject response = new JSONObject(pksRestTemplate.postForObject(
+				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
+				String.class));
+		response.put("pks-config-map", clusterCredentials);
+
 		return GetServiceInstanceAppBindingResponse.builder()
 				.credentials("k8s_context", pksRestTemplate.postForObject(
 						"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, requestObject, String.class))

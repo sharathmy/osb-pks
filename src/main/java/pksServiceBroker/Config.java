@@ -10,7 +10,7 @@ import org.springframework.lang.Nullable;
 @Configuration
 public class Config {
 	static public enum BrokerAction {
-		CREATE, UPDATE, DELETE;
+		GET, CREATE, UPDATE, DELETE;
 		private static final Map<String, BrokerAction> mappings = new HashMap<>(8);
 		static {
 			for (BrokerAction brokerAction : values()) {
