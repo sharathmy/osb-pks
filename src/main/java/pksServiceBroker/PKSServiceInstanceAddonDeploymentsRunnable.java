@@ -533,8 +533,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		case CREATE:
 			LOG.fine("Create PKS Cluster for ServiceID " + serviceInstanceId + " Requestobject: "
 					+ pksRequestObject.toString());
-			System.err.println(pksRequestObject);
-			System.err.println(sbConfig.PKS_FQDN);
 			pksRestTemplate.postForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters", pksRequestObject,
 					String.class);
 			break;

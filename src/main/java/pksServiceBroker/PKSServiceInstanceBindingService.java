@@ -61,8 +61,6 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		JSONObject response = new JSONObject(pksRestTemplate.postForObject(
 				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
 				String.class));
-		System.err.println(response);
-		System.err.println(clusterCredentials);
 		response.put("pks-config-map", clusterCredentials);
 		return CreateServiceInstanceAppBindingResponse.builder().credentials("k8s_context", response.toMap())
 				.bindingExisted(false).build();
