@@ -32,7 +32,13 @@ spec:
             - name: SERVICE_IP
               value: 
             - name: ROUTE_CLIENT
-              value: 
+              valueFrom:
+                secretKeyRef:
+                  name: route-registrar-credentials
+                  key: routing_api_client
             - name: ROUTE_CLIENT_SECRET
-              value: 
+              valueFrom:
+                secretKeyRef:
+                  name: route-registrar-credentials
+                  key: routing_api_client_secret
             - name: ROUTE_TTL
