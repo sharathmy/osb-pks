@@ -159,10 +159,8 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		OperationState state = addonDeploymentRunnables.get(serviceInstanceId).getState();
 		String operationStateMessage = addonDeploymentRunnables.get(serviceInstanceId).getOperationStateMessage();
 		BrokerAction lastPKSAction = addonDeploymentRunnables.get(serviceInstanceId).getAction();
-		System.err.println(lastPKSAction);
 		switch (lastPKSAction) {
 		case CREATE:
-
 			break;
 		case UPDATE:
 			break;
