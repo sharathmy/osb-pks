@@ -10,6 +10,7 @@ import pksServiceBroker.Config.RoutingLayer;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.Node;
+import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
@@ -43,6 +44,7 @@ import java.io.FileNotFoundException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.commons.codec.binary.Base64;
 
 @Configuration
 @EnableConfigurationProperties
@@ -67,8 +69,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private static String kiboshRBACBindingFilename = "config/kibosh-rbac-cr-binding.yaml";
 	private static String kiboshServiceFilename = "config/kibosh-service.yaml";
 	private static String bazaarServiceFilename = "config/kibosh-bazaar-service.yaml";
-
-	
+	private static String routeRegSecretFilename = "config/route-registrar-credentials.yaml";
 	private static Logger LOG = LogManager.getLogger(PKSServiceInstanceAddonDeploymentsRunnable.class);
 
 	private String operationStateMessage;
@@ -262,7 +263,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		clusterConfigMap.getData().put("kibosh.password", java.util.UUID.randomUUID().toString());
 		clusterConfigMap.getData().put("kibosh.protocoll", prefix);
 		clusterConfigMap.getData().put("bazaar.fqdn",
-				getComponentHostname(pksServiceBroker.Config.KIBOSH_NAME, runner));
+				getComponentHostname(pksServiceBroker.Config.BAZAAR_NAME, runner));
 		clusterConfigMap.getData().put("bazaar.user", java.util.UUID.randomUUID().toString());
 		clusterConfigMap.getData().put("bazaar.password", java.util.UUID.randomUUID().toString());
 		clusterConfigMap.getData().put("bazaar.port",
@@ -393,11 +394,9 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 							break;
 						}
 						case "ROUTE_CLIENT": {
-							envVar.setValue(routeClient);
 							break;
 						}
 						case "ROUTE_CLIENT_SECRET": {
-							envVar.setValue(routeClientSecret);
 							break;
 						}
 						case "ROUTE_TTL": {
@@ -542,6 +541,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		default:
 			break;
 		}
+
 		// CHECK CLUSTER CREATION PROCESS UNTIL ITS DONE
 		while (!InetAddressValidator.getInstance().isValid(master_ips.get(0).toString())
 				&& (state != OperationState.FAILED || state != OperationState.SUCCEEDED)) {
@@ -591,6 +591,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		jsonClusterContext.put("master_ip", master_ips.getString(0));
 		refreshClient(jsonClusterContext, true, true);
+
 		// CREATE CONFIGMAP
 		if (clusterConfigMap instanceof ConfigMap) {
 			try {
@@ -601,9 +602,39 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.error("Error Creating Config Map" + clusterConfigMap.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
 				LOG.error(e);
+				return;
 			}
 		} else {
-			LOG.error("ConfigMap not found, something went wrong in initialization");
+			LOG.error("ConfigMapTemplateFile did not contain a valid ConfigMap. Please check  provided file");
+			operationStateMessage = "Generated ConfigMap is not a valid a ConfigMap. Contact your Administrator";
+			state = OperationState.FAILED;
+			return;
+		}
+
+		// CREATE ROUTE REG SECRET
+
+		Secret routeRegSecret = client.secrets().load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
+				.getResourceAsStream(routeRegSecretFilename)).get();
+		routeRegSecret.getData().put("routing_api_client", new String(Base64.encodeBase64(routeClient.getBytes())));
+		routeRegSecret.getData().put("routing_api_client_secret",
+				new String(Base64.encodeBase64(routeClientSecret.getBytes())));
+		if (routeRegSecret instanceof Secret) {
+			try {
+				client.secrets().createOrReplace(routeRegSecret);
+				LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
+			} catch (Exception e) {
+				state = OperationState.FAILED;
+				LOG.error("Error Creating Route Registrar Secret " + routeRegSecret.toString() + " on PKS Cluster "
+						+ serviceInstanceId);
+				LOG.error(e);
+				return;
+			}
+
+		} else {
+			LOG.error("RouteRegSecretTemplateFile at : " + routeRegSecretFilename + " did not contain a valid Secret.");
+			operationStateMessage = "RouteRegSecret is not valid. Contact your Administrator";
+			state = OperationState.FAILED;
+			return;
 		}
 
 		// CREATE ROUTE REG DEPLOYMENT FOR MASTER
