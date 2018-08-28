@@ -15,6 +15,7 @@ import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding;
+import io.fabric8.kubernetes.api.model.storage.StorageClass;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.json.JSONArray;
@@ -70,6 +71,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private static String kiboshServiceFilename = "config/kibosh-service.yaml";
 	private static String bazaarServiceFilename = "config/kibosh-bazaar-service.yaml";
 	private static String routeRegSecretFilename = "config/route-registrar-credentials.yaml";
+	private static String storageClassFileName = "config/vsphere-storage-class.yaml";
 	private static Logger LOG = LogManager.getLogger(PKSServiceInstanceAddonDeploymentsRunnable.class);
 
 	private String operationStateMessage;
@@ -669,6 +671,33 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			return;
 		}
 
+		// CREATE STORAGE CLASS FOR CLUSTER
+
+		StorageClass clusterStorageClass = client.storage().storageClasses()
+				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
+						.getResourceAsStream(storageClassFileName))
+				.get();
+		if (clusterStorageClass instanceof StorageClass) {
+			try {
+				client.storage().storageClasses().createOrReplace(clusterStorageClass);
+				LOG.info("Create StorageClass for PKS Cluster: " + serviceInstanceId);
+			} catch (Exception e) {
+				LOG.error("Error Creating Storage Class" + clusterStorageClass.toString() + " on PKS Cluster "
+						+ serviceInstanceId);
+				LOG.error(e);
+				state = OperationState.FAILED;
+				client.close();
+				return;
+			}
+		} else {
+			LOG.error("ClusterStorageTemplateFile at : " + routeRegSecretFilename
+					+ " did not contain a valid StorageClass.");
+			operationStateMessage = "StorageCLass is not valid. Contact your Administrator";
+			state = OperationState.FAILED;
+			client.close();
+			return;
+		}
+
 		// CREATE ROUTE REG DEPLOYMENT FOR MASTER
 		try {
 			operationStateMessage = "Cluster created, creating route emitter pod";
@@ -708,6 +737,11 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		operationStateMessage = "finished deployment";
 		state = OperationState.SUCCEEDED;
 		client.close();
+	}
+	
+	private  boolean checkAndCreateResource() {
+		
+		return false;
 	}
 
 	// GETTER & SETTER Block
