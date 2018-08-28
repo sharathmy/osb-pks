@@ -124,14 +124,12 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		HttpEntity<String> requestObject = new HttpEntity<String>("", headers);
 		pksRestTemplate.exchange("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId,
 				HttpMethod.DELETE, requestObject, String.class);
-		return DeleteServiceInstanceResponse.builder().async(true).build();
+		return DeleteServiceInstanceResponse.builder().async(false).build();
 	}
 
 	public GetServiceInstanceResponse getServiceInstance(GetServiceInstanceRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
-
 		String planName = "";
-
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
 			addonDeploymentRunnables.put(serviceInstanceId,
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
@@ -150,7 +148,7 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		dashboards.put("kube_api", KUBE_API_HTTP_ADDR);
 		dashboards.put("kibosh_service_broker", KIBOSH_API_HTTP_ADDR);
 		dashboards.put("kibosh_bazaar_endpoint", BAZAAR_API_HTTP_ADDR);
-
+		addonDeploymentRunnables.remove(serviceInstanceId);
 		return GetServiceInstanceResponse.builder().dashboardUrl(dashboards.toString()).build();
 	}
 
