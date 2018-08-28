@@ -417,7 +417,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			routeEmitDeployment.getSpec().getSelector().getMatchLabels().put("name", deploymentName);
 			routeEmitDeployment.getSpec().getTemplate().getSpec().getContainers().get(0).setName(deploymentName);
 			routeEmitDeployment = client.apps().deployments().createOrReplace(routeEmitDeployment);
-			LOG.info("Created Deployment of RouteRegistration for " + componentName + " on PKS Cluster "
+			LOG.info(action.toString() + " Deployment of RouteRegistration for " + componentName + " on PKS Cluster "
 					+ serviceInstanceId);
 
 		} else {
@@ -447,7 +447,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (kiboshRBACAccount instanceof ServiceAccount) {
 			try {
 				kiboshRBACAccount = client.serviceAccounts().createOrReplace(kiboshRBACAccount);
-				LOG.info("Created Kibosh Helm Service Account for PKS Cluster " + serviceInstanceId);
+				LOG.info(action.toString() + " Kibosh Helm Service Account for PKS Cluster " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
 				LOG.error("Error Creating Service Account " + kiboshRBACAccount.toString() + " on PKS Cluster "
@@ -465,7 +465,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (kiboshDeployment instanceof Deployment) {
 			try {
 				kiboshDeployment = client.apps().deployments().createOrReplace(kiboshDeployment);
-				LOG.info("Created Kibosh Deployment on PKS Cluster " + serviceInstanceId);
+				LOG.info(action.toString() + " Kibosh Deployment on PKS Cluster " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
 				LOG.error("Error Creating Kibosh Deployment " + kiboshDeployment.toString() + " on PKS Cluster "
@@ -484,7 +484,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (kiboshBazaarService instanceof Service) {
 			try {
 				kiboshBazaarService = client.services().createOrReplace(kiboshBazaarService);
-				LOG.info("Created Bazaar Service on PKS Custer " + serviceInstanceId);
+				LOG.info(action.toString() + " Bazaar Service on PKS Custer " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
 				LOG.error("Failed creating Bazaar Service on PKS Custer " + serviceInstanceId);
@@ -501,7 +501,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (kiboshService instanceof Service) {
 			try {
 				kiboshService = client.services().createOrReplace(kiboshService);
-				LOG.info("Created KIBOSH Service on PKS Custer " + serviceInstanceId);
+				LOG.info(action.toString() + " KIBOSH Service on PKS Custer " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
 				LOG.error("Failed creating KIBOSH Service on PKS Custer " + serviceInstanceId);
@@ -518,7 +518,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (kiboshRBACBinding instanceof KubernetesClusterRoleBinding) {
 			try {
 				client.rbac().kubernetesClusterRoleBindings().createOrReplace(kiboshRBACBinding);
-				LOG.info("Created Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
+				LOG.info(action.toString() + " Kibosh Helm Tiller ClusterRoleBinding on PKS Custer "
+						+ serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				LOG.error("Failed Creating Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
 				state = OperationState.FAILED;
@@ -626,7 +627,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		if (clusterConfigMap instanceof ConfigMap) {
 			try {
 				clusterConfigMap = client.configMaps().createOrReplace(clusterConfigMap);
-				LOG.info("Created Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
+				LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
 				LOG.error("Error Creating Config Map" + clusterConfigMap.toString() + " on PKS Cluster "
@@ -679,8 +680,16 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				.get();
 		if (clusterStorageClass instanceof StorageClass) {
 			try {
-				client.storage().storageClasses().createOrReplace(clusterStorageClass);
-				LOG.info("Create StorageClass for PKS Cluster: " + serviceInstanceId);
+				if (client.storage().storageClasses().withName(clusterStorageClass.getMetadata().getName()).fromServer()
+						.get() instanceof StorageClass) {
+					LOG.info("Skipping " + action + " of StorageClass for PKS Cluster: " + serviceInstanceId
+							+ ". Already found.");
+				} else {
+					client.storage().storageClasses().createOrReplace(clusterStorageClass);
+					LOG.info(action + " of StorageClass for PKS Cluster: " + serviceInstanceId + ". Already found");
+
+				}
+
 			} catch (Exception e) {
 				LOG.error("Error Creating Storage Class" + clusterStorageClass.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
@@ -737,11 +746,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		operationStateMessage = "finished deployment";
 		state = OperationState.SUCCEEDED;
 		client.close();
-	}
-	
-	private  boolean checkAndCreateResource() {
-		
-		return false;
 	}
 
 	// GETTER & SETTER Block
