@@ -183,6 +183,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					runner.bazaarExternalPort = getFreePortForCFTcpRouter();
 				}
 				runner.clusterConfigMap = createConfigMap(runner);
+				client.close();
 			}
 
 			break;
@@ -216,6 +217,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				runner.setClusterConfigMap(
 						client.configMaps().withName("cluster-addon-deployment-data").fromServer().get());
 			} catch (Exception e) {
+				client.close();
 				LOG.error("PKS Cluster " + runner.serviceInstanceId + " has no ConfigMap yet. Run UPDATE");
 			}
 		default:
@@ -329,6 +331,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		Deployment deployment = client.apps().deployments().withName(deploymentName).fromServer().get();
 		if (deployment == null) {
 			state = OperationState.FAILED;
+			client.close();
 			cont = false;
 		} else {
 			refreshClient(kubeConfig, false, false);
@@ -341,9 +344,11 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				} catch (KubernetesClientException e) {
 					// our try used external url, so we use Exception to figure out whether route is
 					// ready
+					client.close();
 					LOG.info("Waiting for Master Routes to become active on PKS Cluster " + serviceInstanceId);
 					operationStateMessage = "Waiting for Master Routes to become active";
 				} catch (Exception e) {
+					client.close();
 					e.printStackTrace();
 				}
 			}
@@ -446,10 +451,14 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.error("Error Creating Service Account " + kiboshRBACAccount.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
 				e.printStackTrace();
+				client.close();
+				return;
 			}
 		} else {
 			state = OperationState.FAILED;
+			client.close();
 			LOG.error("Loaded resource is not an Account! " + serviceInstanceId);
+			return;
 		}
 		if (kiboshDeployment instanceof Deployment) {
 			try {
@@ -459,11 +468,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				state = OperationState.FAILED;
 				LOG.error("Error Creating Kibosh Deployment " + kiboshDeployment.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
+				client.close();
 				e.printStackTrace();
+				return;
 			}
 		} else {
 			state = OperationState.FAILED;
 			LOG.error("Loaded resource is not a Deployment! " + serviceInstanceId);
+			client.close();
+			return;
 		}
 
 		if (kiboshBazaarService instanceof Service) {
@@ -473,11 +486,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
 				LOG.error("Failed creating Bazaar Service on PKS Custer " + serviceInstanceId);
+				client.close();
 				e.printStackTrace();
+				return;
 			}
 		} else {
 			state = OperationState.FAILED;
 			LOG.error("Loaded resource is not a Service!" + serviceInstanceId);
+			client.close();
+			return;
 		}
 		if (kiboshService instanceof Service) {
 			try {
@@ -486,12 +503,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			} catch (KubernetesClientException e) {
 				state = OperationState.FAILED;
 				LOG.error("Failed creating KIBOSH Service on PKS Custer " + serviceInstanceId);
+				client.close();
 				e.printStackTrace();
 			}
 
 		} else {
 			state = OperationState.FAILED;
 			LOG.error("Loaded resource is not a Service! " + serviceInstanceId);
+			client.close();
+			return;
 		}
 		if (kiboshRBACBinding instanceof KubernetesClusterRoleBinding) {
 			try {
@@ -501,11 +521,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.error("Failed Creating Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
 				state = OperationState.FAILED;
 				e.printStackTrace();
+				client.close();
+				return;
 			}
 
 		} else {
 			state = OperationState.FAILED;
 			LOG.error("Loaded resource is not a Role Binding! " + serviceInstanceId);
+			client.close();
+			return;
 		}
 
 		JSONArray nodeIPs = new JSONArray();
@@ -532,7 +556,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		switch (action) {
 		case CREATE:
 			LOG.debug("Create PKS Cluster for ServiceID " + serviceInstanceId + " Requestobject: "
-					+ pksRequestObject.toString());
+					+ pksRequestObject.toString().replaceAll("Bearer [a-zA-Z0-9-_.]*", "<redacted>"));
 			pksRestTemplate.postForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters", pksRequestObject,
 					String.class);
 			break;
@@ -556,6 +580,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				this.operationStateMessage = jsonClusterInfo.getString("last_action_description");
 
 			} catch (HttpClientErrorException e) {
+
 				switch (e.getStatusCode().toString()) {
 				case "404":
 					LOG.info("PKS Cluster: " + serviceInstanceId + " could not be found");
@@ -565,17 +590,20 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				default:
 					break;
 				}
+				client.close();
 			}
 			try {
 				TimeUnit.SECONDS.sleep(10);
 			} catch (InterruptedException e) {
+				client.close();
 				e.printStackTrace();
 			}
 		}
 
-		if (this.state.equals(OperationState.FAILED))
+		if (this.state.equals(OperationState.FAILED)) {
+			client.close();
 			return;
-
+		}
 		LOG.info("Succesfully deployed PKS Cluster " + serviceInstanceId);
 		LOG.info("Applying Addons to : " + serviceInstanceId);
 
@@ -601,6 +629,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				state = OperationState.FAILED;
 				LOG.error("Error Creating Config Map" + clusterConfigMap.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
+				client.close();
 				LOG.error(e);
 				return;
 			}
@@ -608,6 +637,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			LOG.error("ConfigMapTemplateFile did not contain a valid ConfigMap. Please check  provided file");
 			operationStateMessage = "Generated ConfigMap is not a valid a ConfigMap. Contact your Administrator";
 			state = OperationState.FAILED;
+			client.close();
 			return;
 		}
 
@@ -623,10 +653,11 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				client.secrets().createOrReplace(routeRegSecret);
 				LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
 			} catch (Exception e) {
-				state = OperationState.FAILED;
 				LOG.error("Error Creating Route Registrar Secret " + routeRegSecret.toString() + " on PKS Cluster "
 						+ serviceInstanceId);
 				LOG.error(e);
+				state = OperationState.FAILED;
+				client.close();
 				return;
 			}
 
@@ -634,6 +665,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			LOG.error("RouteRegSecretTemplateFile at : " + routeRegSecretFilename + " did not contain a valid Secret.");
 			operationStateMessage = "RouteRegSecret is not valid. Contact your Administrator";
 			state = OperationState.FAILED;
+			client.close();
 			return;
 		}
 
@@ -646,6 +678,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					jsonClusterInfo.getJSONObject("parameters").getInt("kubernetes_master_port"), "master",
 					RoutingLayer.TCP);
 		} catch (FileNotFoundException e) {
+			client.close();
 			e.printStackTrace();
 		}
 		// CHECK IF PKS CLUSTER ALREADY HAS A ROUTE EMITTER POD RUNNING
@@ -653,11 +686,14 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			try {
 				TimeUnit.SECONDS.sleep(5);
 			} catch (InterruptedException e) {
+				client.close();
 				e.printStackTrace();
 			}
 		}
-		if (state.equals(OperationState.FAILED))
+		if (state.equals(OperationState.FAILED)) {
+			client.close();
 			return;
+		}
 		operationStateMessage = "RouteRegistration for Master Complete";
 
 		// DEPLOY KIBOSH POD
@@ -665,6 +701,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			createKiboshDeployment(jsonClusterContext);
 
 		} catch (FileNotFoundException e) {
+			client.close();
 			e.printStackTrace();
 		}
 
