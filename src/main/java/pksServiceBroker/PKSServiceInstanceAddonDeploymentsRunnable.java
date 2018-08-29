@@ -9,11 +9,13 @@ import pksServiceBroker.Config.BrokerAction;
 import pksServiceBroker.Config.RoutingLayer;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.EnvVar;
+import io.fabric8.kubernetes.api.model.Namespace;
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRole;
 import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding;
 import io.fabric8.kubernetes.api.model.storage.StorageClass;
 
@@ -34,18 +36,27 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
 import org.springframework.web.client.HttpClientErrorException;
+import org.yaml.snakeyaml.Yaml;
 
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
+
 import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.IOUtils;
 
 @Configuration
 @EnableConfigurationProperties
@@ -89,6 +100,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private HttpEntity<String> pksRequestObject;
 	private String serviceInstanceId;
 	private String pksPlanName;
+
 	@Autowired
 	@Qualifier("pks")
 	OAuth2RestTemplate pksRestTemplate;
@@ -551,6 +563,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	@Override
 	public void run() {
+		applyOperators();
 
 		JSONArray master_ips = new JSONArray();
 		master_ips.put("empty");
@@ -747,6 +760,69 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		state = OperationState.SUCCEEDED;
 		client.close();
 	}
+
+	private void applyOperators() {
+		sbConfig.getDefaultOperators().forEach(downloadLink -> {
+			System.err.println(downloadLink);
+			try {
+				InputStream operatorContent = new URL(downloadLink).openStream();
+				Yaml yamlHandler = new Yaml();
+
+				yamlHandler.loadAll(operatorContent).forEach(resourceObject -> {
+					Map<String, String> resource = (HashMap<String, String>) resourceObject;
+					InputStream resourceIOStream = null;
+					try {
+						resourceIOStream = IOUtils.toInputStream(yamlHandler.dump(resourceObject), "UTF-8");
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						LOG.error("Error reading ");
+						e.printStackTrace();
+					}
+					switch (resource.get("kind")) {
+					case "ClusterRole": {
+						;
+						KubernetesClusterRole kubeClusterRole = client.rbac().kubernetesClusterRoles()
+								.load(resourceIOStream).get();
+						if (kubeClusterRole instanceof KubernetesClusterRole) {
+							client.rbac().kubernetesClusterRoles().createOrReplace(kubeClusterRole);
+						}
+						break;
+					}
+					case "Namespace":
+						Namespace operatorNamespace = client.namespaces().load(resourceIOStream).get();
+						client.namespaces().create(operatorNamespace);
+						break;
+					case "ServiceAccount":
+						ServiceAccount operatorServiceAccount = client.serviceAccounts().load(resourceIOStream).get();
+						client.serviceAccounts().create(operatorServiceAccount);
+						break;
+					case "ClusterRoleBinding":
+						KubernetesClusterRoleBinding operatorClusterRoleBinding = client.rbac()
+								.kubernetesClusterRoleBindings().load(resourceIOStream).get();
+						client.rbac().kubernetesClusterRoleBindings().create(operatorClusterRoleBinding);
+						break;
+					case "Deployment":
+						Deployment operatorDeployment = client.apps().deployments().load(resourceIOStream).get();
+						client.apps().deployments().create(operatorDeployment);
+						break;
+					default:
+						LOG.error("Loading of  Resource with type: " + resource.get("type") + " not yet supported "+resource.toString());
+						break;
+					}
+					LOG.info(action + " " + resource.get("kind") + " from Operator: " + downloadLink + " on PKS Cluster"
+							+ serviceInstanceId);
+
+				});
+				;
+			} catch (MalformedURLException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		});
+	};
 
 	// GETTER & SETTER Block
 	public BrokerAction getAction() {

@@ -1,13 +1,16 @@
 package pksServiceBroker;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.lang.Nullable;
 
 @Configuration
+@ConfigurationProperties(prefix = "addons")
 public class Config {
 	static public enum BrokerAction {
 		GET, CREATE, UPDATE, DELETE;
@@ -66,5 +69,15 @@ public class Config {
 	static final String ADDON_NAMESPACE = "kube-system";
 	static final String ROUTE_DEPLOYMENT_PREFIX = "tcp-route-registrar-";
 	static final int ROUTE_TTL = 20;
+	
+	private ArrayList<String> defaultOperators = new ArrayList<String>();
+
+	public ArrayList<String> getDefaultOperators() {
+		return defaultOperators;
+	}
+
+	public void setDefaultOperators(ArrayList<String> defaultOperators) {
+		this.defaultOperators = defaultOperators;
+	}
 
 }
