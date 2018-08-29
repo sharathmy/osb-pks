@@ -69,7 +69,7 @@ public class Config {
 	static final String ADDON_NAMESPACE = "kube-system";
 	static final String ROUTE_DEPLOYMENT_PREFIX = "tcp-route-registrar-";
 	static final int ROUTE_TTL = 20;
-	
+
 	private ArrayList<String> defaultOperators = new ArrayList<String>();
 
 	public ArrayList<String> getDefaultOperators() {
@@ -78,6 +78,16 @@ public class Config {
 
 	public void setDefaultOperators(ArrayList<String> defaultOperators) {
 		this.defaultOperators = defaultOperators;
+	}
+
+	private ArrayList<String> defaultAddons = new ArrayList<String>();
+
+	public ArrayList<String> getDefaultAddons() {
+		return defaultAddons;
+	}
+
+	public void setDefaultAddons(ArrayList<String> defaultAddons) {
+		this.defaultAddons = defaultAddons;
 	}
 
 }
