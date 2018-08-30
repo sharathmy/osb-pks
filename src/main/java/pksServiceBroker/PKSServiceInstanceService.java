@@ -103,6 +103,7 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
 							BrokerAction.UPDATE, serviceInstanceId, planName, RoutingLayer.HTTP));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
+			thread.setName(serviceInstanceId);
 			thread.start();
 			LOG.info(request.getOriginatingIdentity() + " requested update of "
 					+ request.getServiceDefinition().getName() + " with ID " + serviceInstanceId + " for "
