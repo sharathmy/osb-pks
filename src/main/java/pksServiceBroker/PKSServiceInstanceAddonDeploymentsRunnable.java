@@ -109,6 +109,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	private ConfigMap clusterConfigMap;
 
+	private Boolean provisionKibosh=false;
+
 	@Bean(name = "addonDeploymentRunnable")
 	@Scope(value = "prototype")
 	public PKSServiceInstanceAddonDeploymentsRunnable getPKSServiceInstanceAddonDeploymentsRunnable(BrokerAction action,
@@ -430,11 +432,9 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			routeEmitDeployment.getSpec().getTemplate().getMetadata().getLabels().put("name", deploymentName);
 			routeEmitDeployment.getSpec().getSelector().getMatchLabels().put("name", deploymentName);
 			routeEmitDeployment.getSpec().getTemplate().getSpec().getContainers().get(0).setName(deploymentName);
-			LOG.info(action.toString() + " Deployment of RouteRegistration for " + componentName + " on PKS Cluster "
-					+ serviceInstanceId);
+			LOG.info("SUccesfully Loaded Deployment Object for RouteRegistration of " + componentName
+					+ " on PKS Cluster " + serviceInstanceId);
 			client.close();
-			System.err.println(routeEmitDeployment);
-//			HashMap<String, String> routeEmitDeploymentHashmap = routeEmitDeployment;
 			return routeEmitDeployment;
 		} else {
 			LOG.error("Loaded resource is not a Deployment! Could not create RouteReg Deployment for " + componentName
@@ -453,9 +453,14 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			nodeIPs.put(node.getStatus().getAddresses().get(0).getAddress());
 		});
 
+		// First run, apply static resources
+		applyTypedResource(typedResourceList);
+
 		LOG.debug("Will use NodeIPs: " + nodeIPs.toString() + " for route Registration on PKS Cluster: "
 				+ serviceInstanceId);
 		changeClient(jsonClusterContext, "kube-system");
+
+		typedResourceList = new ArrayList<>();
 		typedResourceList.add(createRouteRegDeployment(jsonClusterContext,
 				client.services().withName("kibosh-np").fromServer().get().getSpec().getPorts().get(0).getNodePort(),
 				nodeIPs.toList(), kiboshExternalPort, pksServiceBroker.Config.KIBOSH_NAME, kiboshRoutingLayer));
@@ -464,6 +469,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				client.services().withName("kibosh-bazaar-np").fromServer().get().getSpec().getPorts().get(0)
 						.getNodePort(),
 				nodeIPs.toList(), bazaarExternalPort, pksServiceBroker.Config.BAZAAR_NAME, kiboshRoutingLayer));
+		// second run apply dynamic resources
 		applyTypedResource(typedResourceList);
 		client.close();
 	}
@@ -613,14 +619,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		LOG.info("Applying Default Operators to : " + serviceInstanceId);
 		createTypedResources(sbConfig.getDefaultOperators(), jsonClusterContext);
+		
+		if (provisionKibosh){
+			try {
+				createKiboshDeployment(jsonClusterContext);
 
-		// DEPLOY KIBOSH POD
-		try {
-			createKiboshDeployment(jsonClusterContext);
-
-		} catch (FileNotFoundException e) {
-			client.close();
-			e.printStackTrace();
+			} catch (FileNotFoundException e) {
+				client.close();
+				e.printStackTrace();
+			}
 		}
 
 		operationStateMessage = "finished deployment";
@@ -636,10 +643,12 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				Service service = (Service) resource;
 				try {
 					service = client.services().createOrReplace(service);
-					LOG.info(action.toString() + " KIBOSH Service on PKS Custer " + serviceInstanceId);
+					LOG.info(action.toString() + " Service " + service.getMetadata().getName() + " on PKS Custer "
+							+ serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
-					LOG.error("Failed creating KIBOSH Service on PKS Custer " + serviceInstanceId);
+					LOG.error("Failed creating Service " + service.getMetadata().getName() + " on PKS Custer "
+							+ serviceInstanceId);
 					client.close();
 					e.printStackTrace();
 					return;
@@ -811,7 +820,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		try {
 			resourceIOStream = IOUtils.toInputStream(yamlHandler.dump(resourceObject), "UTF-8");
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			LOG.error("Error loading " + resourceObject.toString());
 			e.printStackTrace();
 		}
@@ -827,80 +835,82 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		case "ClusterRole":
 			KubernetesClusterRole kubeClusterRole = client.rbac().kubernetesClusterRoles().load(resourceIOStream).get();
 
-			if (kubeClusterRole instanceof KubernetesClusterRole) {
+			if (kubeClusterRole instanceof KubernetesClusterRole)
 				return kubeClusterRole;
-			} else {
-				LOG.error("PKS Cluster: " + serviceInstanceId + "+Could not parse " + resource.toString());
-				return null;
-			}
+
+			LOG.error("Loaded resource is not KubernetesClusterRole! PKS Cluster: " + serviceInstanceId + " Resource: "
+					+ resource.toString());
+
+			break;
 		case "Namespace":
 			Namespace namespace = client.namespaces().load(resourceIOStream).get();
-
-			if (namespace instanceof Namespace) {
+			if (namespace instanceof Namespace)
 				return namespace;
-			} else {
-				return null;
-			}
+			state = OperationState.FAILED;
+			client.close();
+			LOG.error("Loaded resource is not Namespace! PKS Cluster: " + serviceInstanceId + " Resource: "
+					+ resource.toString());
+			break;
 		case "ServiceAccount":
 			ServiceAccount serviceAccount = client.serviceAccounts().load(resourceIOStream).get();
-			if (serviceAccount instanceof ServiceAccount) {
+			if (serviceAccount instanceof ServiceAccount)
 				return serviceAccount;
-			} else {
-				state = OperationState.FAILED;
-				client.close();
-				LOG.error("Loaded resource is not an Account! " + serviceInstanceId);
-				return null;
-			}
+			state = OperationState.FAILED;
+			client.close();
+			LOG.error("Loaded resource is not an Account! PKS Cluster: " + serviceInstanceId + " Resource: "
+					+ resource.toString());
+			break;
 		case "ClusterRoleBinding":
 			KubernetesClusterRoleBinding clusterRoleBinding = client.rbac().kubernetesClusterRoleBindings()
 					.load(resourceIOStream).get();
-			if (clusterRoleBinding instanceof KubernetesClusterRoleBinding) {
+			if (clusterRoleBinding instanceof KubernetesClusterRoleBinding)
 				return clusterRoleBinding;
-			} else {
-				state = OperationState.FAILED;
-				LOG.error("Loaded resource is not a Role Binding! " + serviceInstanceId);
-				client.close();
-				return null;
-			}
+			state = OperationState.FAILED;
+			LOG.error("Loaded resource is not a Role Binding! PKS Cluster: " + serviceInstanceId + " Resource: "
+					+ resource.toString());
+			client.close();
+			break;
 		case "StorageClass":
 			StorageClass storageClass = client.storage().storageClasses().load(resourceIOStream).get();
 			if (storageClass instanceof StorageClass)
 				return storageClass;
-			else {
-				// TODO
-			}
+			state = OperationState.FAILED;
+			LOG.error("Loaded resource is not a StorageClass! PKS Cluster: " + serviceInstanceId + "Resource: "
+					+ resource.toString());
+			client.close();
 			break;
 		case "Deployment":
 			Deployment deployment = client.apps().deployments().load(resourceIOStream).get();
-			if (deployment instanceof Deployment) {
+			if (deployment instanceof Deployment)
 				return deployment;
-			} else {
-				state = OperationState.FAILED;
-				LOG.error("Loaded resource is not a Deployment! " + serviceInstanceId);
-				client.close();
-				return null;
-			}
+			state = OperationState.FAILED;
+			LOG.error("Loaded resource is not a Deployment! PKS Cluster: " + serviceInstanceId + "Resource: "
+					+ resource.toString());
+			client.close();
+			break;
 		case "Service":
 			Service service = client.services().load(resourceIOStream).get();
-			if (service instanceof Service) {
+			if (service instanceof Service)
 				return service;
 
-			} else {
-				state = OperationState.FAILED;
-				LOG.error("Loaded resource is not a Service! " + serviceInstanceId);
-				client.close();
-				return null;
-			}
+			state = OperationState.FAILED;
+			LOG.error("Loaded resource is not a Service! PKS Cluster: " + serviceInstanceId + "Resource: "
+					+ resource.toString());
+			client.close();
+			break;
 		case "ConfigMap":
 			ConfigMap configMap = client.configMaps().load(resourceIOStream).get();
 			if (configMap instanceof ConfigMap)
 				return configMap;
-			else
-				break;
+			state = OperationState.FAILED;
+			LOG.error("Loaded resource is not a Service! PKS Cluster: " + serviceInstanceId + "Resource: "
+					+ resource.toString());
+			client.close();
+			break;
 
 		default:
-			LOG.error("Loading of  Resource with type: " + resource.get("type") + " not yet supported "
-					+ resource.toString());
+			LOG.error("PKS Cluster: " + serviceInstanceId + " Loading of  Resource with type: " + resource.get("type")
+					+ " not yet supported " + resource.toString());
 			return null;
 		}
 		LOG.info(action + " " + resource.get("kind") + " from " + sourceLocation + " " + resource.toString()
@@ -933,6 +943,11 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	private void setUseExternalRoute(boolean useExternalRoute) {
 		this.useExternalRoute = useExternalRoute;
+	}
+
+	public void setProvisionKibosh(Boolean provisionKibosh) {
+		this.provisionKibosh = provisionKibosh;
+		
 	}
 
 }
