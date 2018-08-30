@@ -69,6 +69,21 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 			addonDeploymentRunnables.put(serviceInstanceId,
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
 							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP));
+			Map<String, Object> custom_params = request.getParameters();
+			custom_params.keySet().iterator().forEachRemaining(key -> {
+				switch (key) {
+				case "provision_kibosh": {
+					Boolean provision_kibosh = (Boolean) request.getParameters().get(key);
+					LOG.info("Provisioning Kibosh on PKS Cluster: " + serviceInstanceId + " is set to "
+							+ provision_kibosh);
+					addonDeploymentRunnables.get(serviceInstanceId).setProvisionKibosh(provision_kibosh);
+					break;
+				}
+				default:
+					break;
+				}
+			});
+
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();
 			thread.setName(serviceInstanceId);
@@ -102,6 +117,18 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 			addonDeploymentRunnables.put(serviceInstanceId,
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
 							BrokerAction.UPDATE, serviceInstanceId, planName, RoutingLayer.HTTP));
+			Map<String, Object> custom_params = request.getParameters();
+			custom_params.keySet().iterator().forEachRemaining(key -> {
+				switch (key) {
+				case "provision_kibosh": {
+					addonDeploymentRunnables.get(serviceInstanceId)
+							.setProvisionKibosh((Boolean) request.getParameters().get(key));
+					break;
+				}
+				default:
+					break;
+				}
+			});
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.setName(serviceInstanceId);
 			thread.start();
