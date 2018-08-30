@@ -21,6 +21,7 @@ import io.fabric8.kubernetes.api.model.storage.StorageClass;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -42,7 +43,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -295,12 +295,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		client.close();
 		String masterURL = "";
 		if (useExternalRoute) {
-			masterURL = "https://" + jsonClusterContext.getString("master_ip") + ":"
-					+ pksServiceBroker.Config.KUBERNETES_MASTER_PORT + "/";
-		} else {
+
 			masterURL = jsonClusterContext.getJSONArray("clusters").getJSONObject(0).getJSONObject("cluster")
 					.getString("server");
+
+		} else {
+			masterURL = "https://" + jsonClusterContext.getString("master_ip") + ":"
+					+ pksServiceBroker.Config.KUBERNETES_MASTER_PORT + "/";
 		}
+		LOG.trace("PKS Custer: " + serviceInstanceId + " settings masterURL to " + masterURL + " Creating Config");
 		Config config;
 		if (namespace != null && namespace != "")
 			config = new ConfigBuilder().withMasterUrl(masterURL)
@@ -338,42 +341,42 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	protected Boolean checkRouteRegDeploymentMaster(JSONObject kubeConfig, String componentName) {
 		Boolean cont = true;
-		changeClient(kubeConfig, "kube-system");
-		String deploymentName = pksServiceBroker.Config.ROUTE_DEPLOYMENT_PREFIX + componentName;
-		Deployment deployment = client.apps().deployments().withName(deploymentName).fromServer().get();
-		if (deployment == null) {
+		changeClient(kubeConfig, "");
+		int numberNamespaces = client.namespaces().list().getItems().size();
+		if (numberNamespaces < 1) {
 			state = OperationState.FAILED;
 			client.close();
 			cont = false;
 		} else {
-			changeClient(kubeConfig, null);
-			if (client != null) {
-				try {
-					deployment = client.apps().deployments().withName(deploymentName).fromServer().get();
+			LOG.trace("PKS Cluster: " + serviceInstanceId + " Found " + numberNamespaces
+					+ " via internal route; Changing to external");
+			setUseExternalRoute(true);
+			changeClient(kubeConfig, "");
+			try {
+				if (client.namespaces().list().getItems().size() > 0) {
 					cont = false;
 					LOG.info("Master Routes active on PKS Cluster " + serviceInstanceId);
 					setUseExternalRoute(true);
 					operationStateMessage = "Master Routes active";
-				} catch (KubernetesClientException e) {
-					// our try used external url, so we use Exception to figure out whether route is
-					// ready
-					client.close();
-					LOG.info("Waiting for Master Routes to become active on PKS Cluster " + serviceInstanceId);
-					operationStateMessage = "Waiting for Master Routes to become active";
-				} catch (Exception e) {
-					client.close();
-					e.printStackTrace();
 				}
+			} catch (KubernetesClientException e) {
+				// our try used external url, so we use Exception to figure out whether route is
+				// ready
+				LOG.info("Waiting for Master Routes to become active on PKS Cluster " + serviceInstanceId);
+				operationStateMessage = "Waiting for Master Routes to become active";
+			} catch (Exception e) {
+				client.close();
+				e.printStackTrace();
 			}
 		}
 		client.close();
 		return cont;
 	}
 
-	public void createRouteRegDeployment(JSONObject kubeConfig, int internalPort, List<Object> internalIPs,
+	public Deployment createRouteRegDeployment(JSONObject kubeConfig, int internalPort, List<Object> internalIPs,
 			int externalPort, String componentName, RoutingLayer routingLayer) throws FileNotFoundException {
 		String deploymentName = pksServiceBroker.Config.ROUTE_DEPLOYMENT_PREFIX + componentName;
-		changeClient(kubeConfig, "kube-system");
+
 		Deployment routeEmitDeployment = client.apps().deployments()
 				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
 						.getResourceAsStream(routeEmitDeploymentFilename))
@@ -427,19 +430,24 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			routeEmitDeployment.getSpec().getTemplate().getMetadata().getLabels().put("name", deploymentName);
 			routeEmitDeployment.getSpec().getSelector().getMatchLabels().put("name", deploymentName);
 			routeEmitDeployment.getSpec().getTemplate().getSpec().getContainers().get(0).setName(deploymentName);
-			routeEmitDeployment = client.apps().deployments().createOrReplace(routeEmitDeployment);
 			LOG.info(action.toString() + " Deployment of RouteRegistration for " + componentName + " on PKS Cluster "
 					+ serviceInstanceId);
-
+			client.close();
+			System.err.println(routeEmitDeployment);
+//			HashMap<String, String> routeEmitDeploymentHashmap = routeEmitDeployment;
+			return routeEmitDeployment;
 		} else {
 			LOG.error("Loaded resource is not a Deployment! Could not create RouteReg Deployment for " + componentName
 					+ " on PKS Cluster " + serviceInstanceId);
 		}
 		client.close();
+		return null;
+
 	}
 
 	protected void createKiboshDeployment(JSONObject jsonClusterContext) throws FileNotFoundException {
-		applyResources(sbConfig.getDefaultAddons(), jsonClusterContext);
+		ArrayList<Object> typedResourceList = createTypedResources(sbConfig.getDefaultAddons(), jsonClusterContext);
+
 		JSONArray nodeIPs = new JSONArray();
 		client.nodes().list().getItems().forEach((Node node) -> {
 			nodeIPs.put(node.getStatus().getAddresses().get(0).getAddress());
@@ -448,10 +456,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		LOG.debug("Will use NodeIPs: " + nodeIPs.toString() + " for route Registration on PKS Cluster: "
 				+ serviceInstanceId);
 		changeClient(jsonClusterContext, "kube-system");
-		createRouteRegDeployment(jsonClusterContext, client.services().withName("kibosh-np").fromServer().get().getSpec().getPorts().get(0).getNodePort(),
-				nodeIPs.toList(), kiboshExternalPort, pksServiceBroker.Config.KIBOSH_NAME, kiboshRoutingLayer);
-		createRouteRegDeployment(jsonClusterContext, client.services().withName("kibosh-bazaar-np").fromServer().get().getSpec().getPorts().get(0).getNodePort(),
-				nodeIPs.toList(), bazaarExternalPort, pksServiceBroker.Config.BAZAAR_NAME, kiboshRoutingLayer);
+		typedResourceList.add(createRouteRegDeployment(jsonClusterContext,
+				client.services().withName("kibosh-np").fromServer().get().getSpec().getPorts().get(0).getNodePort(),
+				nodeIPs.toList(), kiboshExternalPort, pksServiceBroker.Config.KIBOSH_NAME, kiboshRoutingLayer));
+
+		typedResourceList.add(createRouteRegDeployment(jsonClusterContext,
+				client.services().withName("kibosh-bazaar-np").fromServer().get().getSpec().getPorts().get(0)
+						.getNodePort(),
+				nodeIPs.toList(), bazaarExternalPort, pksServiceBroker.Config.BAZAAR_NAME, kiboshRoutingLayer));
+		applyTypedResource(typedResourceList);
 		client.close();
 	}
 
@@ -514,7 +527,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		}
 
 		LOG.info("Succesfully deployed PKS Cluster " + serviceInstanceId);
-		LOG.info("Applying Default Operators to : " + serviceInstanceId);
 
 		// GET CLUSTER CONTEXT
 		LOG.debug("Getting credentials for " + serviceInstanceId);
@@ -524,28 +536,17 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		jsonClusterContext.put("master_ip", master_ips.getString(0));
 
-		applyResources(sbConfig.getDefaultOperators(), jsonClusterContext);
-
 		LOG.info("Applying Default Addons to : " + serviceInstanceId);
 
 		// GET CLUSTER INFO
 		jsonClusterInfo = new JSONObject(pksRestTemplate
 				.getForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
 
+		ArrayList<Object> typedResourceList = new ArrayList<Object>();
+		changeClient(jsonClusterContext, "kube-system");
 		// CREATE CONFIGMAP
 		if (clusterConfigMap instanceof ConfigMap) {
-			changeClient(jsonClusterContext, clusterConfigMap.getMetadata().getNamespace());
-			try {
-				clusterConfigMap = client.configMaps().createOrReplace(clusterConfigMap);
-				LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
-			} catch (KubernetesClientException e) {
-				state = OperationState.FAILED;
-				LOG.error("Error Creating Config Map" + clusterConfigMap.toString() + " on PKS Cluster "
-						+ serviceInstanceId);
-				client.close();
-				LOG.error(e);
-				return;
-			}
+			typedResourceList.add(clusterConfigMap);
 		} else {
 			LOG.error("ConfigMapTemplateFile did not contain a valid ConfigMap. Please check  provided file");
 			operationStateMessage = "Generated ConfigMap is not a valid a ConfigMap. Contact your Administrator";
@@ -555,24 +556,13 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		}
 
 		// CREATE ROUTE REG SECRET
-
 		Secret routeRegSecret = client.secrets().load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
 				.getResourceAsStream(routeRegSecretFilename)).get();
 		routeRegSecret.getData().put("routing_api_client", new String(Base64.encodeBase64(routeClient.getBytes())));
 		routeRegSecret.getData().put("routing_api_client_secret",
 				new String(Base64.encodeBase64(routeClientSecret.getBytes())));
 		if (routeRegSecret instanceof Secret) {
-			try {
-				client.secrets().createOrReplace(routeRegSecret);
-				LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
-			} catch (Exception e) {
-				LOG.error("Error Creating Route Registrar Secret " + routeRegSecret.toString() + " on PKS Cluster "
-						+ serviceInstanceId);
-				LOG.error(e);
-				state = OperationState.FAILED;
-				client.close();
-				return;
-			}
+			typedResourceList.add(routeRegSecret);
 
 		} else {
 			LOG.error("RouteRegSecretTemplateFile at : " + routeRegSecretFilename + " did not contain a valid Secret.");
@@ -581,19 +571,31 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			client.close();
 			return;
 		}
-
 		// CREATE ROUTE REG DEPLOYMENT FOR MASTER
+		Deployment routeRegDeployment;
 		try {
-			operationStateMessage = "Cluster created, creating route emitter pod";
-			LOG.info("Deploying Addons on PKS Cluster " + serviceInstanceId);
-			createRouteRegDeployment(jsonClusterContext, pksServiceBroker.Config.KUBERNETES_MASTER_PORT,
+			routeRegDeployment = createRouteRegDeployment(jsonClusterContext,
+					pksServiceBroker.Config.KUBERNETES_MASTER_PORT,
 					jsonClusterInfo.getJSONArray("kubernetes_master_ips").toList(),
 					jsonClusterInfo.getJSONObject("parameters").getInt("kubernetes_master_port"), "master",
 					RoutingLayer.TCP);
-		} catch (FileNotFoundException e) {
-			client.close();
-			e.printStackTrace();
+			if (routeRegDeployment instanceof Deployment) {
+				typedResourceList.add(routeRegDeployment);
+			} else {
+
+			}
+		} catch (FileNotFoundException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		} catch (JSONException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
 		}
+
+		operationStateMessage = "Cluster created, creating route emitter pod";
+		LOG.info("Deploying Addons on PKS Cluster " + serviceInstanceId);
+		applyTypedResource(typedResourceList);
+
 		// CHECK IF PKS CLUSTER ALREADY HAS A ROUTE EMITTER POD RUNNING
 		while (checkRouteRegDeploymentMaster(jsonClusterContext, "master") && !state.equals(OperationState.FAILED)) {
 			try {
@@ -609,6 +611,9 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		}
 		operationStateMessage = "RouteRegistration for Master Complete";
 
+		LOG.info("Applying Default Operators to : " + serviceInstanceId);
+		createTypedResources(sbConfig.getDefaultOperators(), jsonClusterContext);
+
 		// DEPLOY KIBOSH POD
 		try {
 			createKiboshDeployment(jsonClusterContext);
@@ -623,7 +628,147 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		client.close();
 	}
 
-	private void applyResources(ArrayList<?> resourceList, JSONObject jsonClusterContext) {
+	private void applyTypedResource(ArrayList<Object> typedResourceList) {
+		typedResourceList.forEach(resource -> {
+			String skipping = "";
+			switch (resource.getClass().getName()) {
+			case "io.fabric8.kubernetes.api.model.Service":
+				Service service = (Service) resource;
+				try {
+					service = client.services().createOrReplace(service);
+					LOG.info(action.toString() + " KIBOSH Service on PKS Custer " + serviceInstanceId);
+				} catch (KubernetesClientException e) {
+					state = OperationState.FAILED;
+					LOG.error("Failed creating KIBOSH Service on PKS Custer " + serviceInstanceId);
+					client.close();
+					e.printStackTrace();
+					return;
+				}
+				break;
+			case "io.fabric8.kubernetes.api.model.Namespace":
+				Namespace namespace = (Namespace) resource;
+				try {
+					namespace = client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
+							.get() == null ? client.namespaces().createOrReplace(namespace)
+									: client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
+											.get();
+				} catch (Exception e) {
+					client.namespaces().withName(namespace.getMetadata().getName()).fromServer().get();
+				}
+				break;
+			case "io.fabric8.kubernetes.api.model.apps.Deployment":
+				Deployment deployment = (Deployment) resource;
+				try {
+					client.apps().deployments().createOrReplace(deployment);
+					LOG.info(action.toString() + " Deployment " + deployment.getMetadata().getName()
+							+ " on PKS Cluster " + serviceInstanceId);
+				} catch (KubernetesClientException e) {
+					state = OperationState.FAILED;
+					LOG.error("Error Creating Deployment " + deployment.toString() + " on PKS Cluster "
+							+ serviceInstanceId);
+					client.close();
+					e.printStackTrace();
+					return;
+				}
+				break;
+			case "io.fabric8.kubernetes.api.model.storage.StorageClass":
+				StorageClass storageClass = (StorageClass) resource;
+				try {
+					if (client.storage().storageClasses().withName(storageClass.getMetadata().getName()).fromServer()
+							.get() == null)
+						client.storage().storageClasses().createOrReplace(storageClass);
+					else
+						skipping = "Skipping ";
+
+					LOG.info(skipping + action + " of StorageClass for PKS Cluster: " + serviceInstanceId
+							+ ". Already found");
+
+				} catch (Exception e) {
+					LOG.error("Error Creating Storage Class" + storageClass.toString() + " on PKS Cluster "
+							+ serviceInstanceId);
+					LOG.error(e);
+					state = OperationState.FAILED;
+					client.close();
+					return;
+				}
+				break;
+			case "io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding":
+				KubernetesClusterRoleBinding clusterRoleBinding = (KubernetesClusterRoleBinding) resource;
+				try {
+					client.rbac().kubernetesClusterRoleBindings().createOrReplace(clusterRoleBinding);
+					LOG.info(action.toString() + " ClusterRoleBinding " + clusterRoleBinding.getMetadata().getName()
+							+ " on PKS Custer " + serviceInstanceId);
+					LOG.debug(clusterRoleBinding.toString());
+				} catch (KubernetesClientException e) {
+					LOG.error(
+							"Failed Creating Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
+					state = OperationState.FAILED;
+					e.printStackTrace();
+					client.close();
+					return;
+				}
+				break;
+			case "io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRole":
+				KubernetesClusterRole clusterRole = (KubernetesClusterRole) resource;
+				clusterRole = client.rbac().kubernetesClusterRoles().createOrReplace(clusterRole);
+				break;
+			case "io.fabric8.kubernetes.api.model.ConfigMap":
+				ConfigMap configMap = (ConfigMap) resource;
+				try {
+					configMap = client.configMaps().createOrReplace(clusterConfigMap);
+					LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
+				} catch (KubernetesClientException e) {
+					state = OperationState.FAILED;
+					LOG.error("Error Creating Config Map" + configMap.toString() + " on PKS Cluster "
+							+ serviceInstanceId);
+					client.close();
+					LOG.error(e);
+					return;
+				}
+				break;
+			case "io.fabric8.kubernetes.api.model.Secret":
+				Secret secret = (Secret) resource;
+				try {
+					secret = client.secrets().createOrReplace(secret);
+					LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
+				} catch (Exception e) {
+					LOG.error("Error Creating Route Registrar Secret " + secret.toString() + " on PKS Cluster "
+							+ serviceInstanceId);
+					LOG.error(e);
+					state = OperationState.FAILED;
+					client.close();
+					return;
+				}
+				break;
+			case "io.fabric8.kubernetes.api.model.ServiceAccount":
+				ServiceAccount serviceAccount = (ServiceAccount) resource;
+				try {
+					if (client.serviceAccounts().withName(serviceAccount.getMetadata().getName()).fromServer()
+							.get() == null) {
+						serviceAccount = client.serviceAccounts().createOrReplace(serviceAccount);
+
+					} else {
+						skipping = "Skipping ";
+					}
+					LOG.info(skipping + action.toString() + " Kibosh Helm Service Account for PKS Cluster "
+							+ serviceInstanceId);
+				} catch (KubernetesClientException e) {
+					state = OperationState.FAILED;
+					LOG.error("Error Creating Service Account " + serviceAccount.toString() + " on PKS Cluster "
+							+ serviceInstanceId);
+					e.printStackTrace();
+					client.close();
+				}
+				break;
+			default:
+				break;
+			}
+		});
+
+	}
+
+	private ArrayList<Object> createTypedResources(ArrayList<?> resourceList, JSONObject jsonClusterContext) {
+		ArrayList<Object> typedResources = new ArrayList<>();
 		resourceList.forEach(resourceReference -> {
 			InputStream resourceInputStream = null;
 			String source = "";
@@ -633,6 +778,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					resourceInputStream = new URL(resourceReference.toString()).openStream();
 					source = "remote File: " + resourceReference.toString();
 				} catch (MalformedURLException e1) {
+					source = "Classpath File: " + resourceReference.toString();
 					resourceInputStream = PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
 							.getResourceAsStream(resourceReference.toString());
 				} catch (IOException e1) {
@@ -645,193 +791,124 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				source = "Object: " + resourceReference.toString();
 				break;
 			default:
-				System.err.println(resourceReference.getClass().getName());
 				break;
 			}
-			Yaml yamlHandler = new Yaml();
 			final String sourceLocation = source;
-			yamlHandler.loadAll(resourceInputStream).forEach(resourceObject -> {
-				String skipping = "";
-				Map<String, String> resource = (HashMap<String, String>) resourceObject;
-				InputStream resourceIOStream = null;
-				try {
-					resourceIOStream = IOUtils.toInputStream(yamlHandler.dump(resourceObject), "UTF-8");
-				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					LOG.error("Error reading ");
-					e.printStackTrace();
-				}
-				switch (resource.get("kind")) {
-				case "ClusterRole":
-					KubernetesClusterRole kubeClusterRole = client.rbac().kubernetesClusterRoles()
-							.load(resourceIOStream).get();
-					if (kubeClusterRole instanceof KubernetesClusterRole) {
-						String currentNameSpace = kubeClusterRole.getMetadata().getNamespace();
-						changeClient(jsonClusterContext, currentNameSpace);
-						client.rbac().kubernetesClusterRoles().createOrReplace(kubeClusterRole);
-					}
-					break;
-				case "Namespace":
-					Namespace namespace = client.namespaces().load(resourceIOStream).get();
-					if (namespace instanceof Namespace) {
-						changeClient(jsonClusterContext, "");
-						client.namespaces().createOrReplace(namespace);
-					}
-					break;
-				case "ServiceAccount":
-					ServiceAccount serviceAccount = client.serviceAccounts().load(resourceIOStream).get();
-					if (serviceAccount instanceof ServiceAccount) {
-						try {
-							String currentNameSpace = serviceAccount.getMetadata().getNamespace();
-							changeClient(jsonClusterContext, currentNameSpace);
-							if (client.serviceAccounts().withName(serviceAccount.getMetadata().getName()).fromServer()
-									.get() != null) {
-								serviceAccount = client.serviceAccounts().createOrReplace(serviceAccount);
-
-							} else {
-								skipping = "Skipping ";
-							}
-							LOG.info(skipping + action.toString() + " Kibosh Helm Service Account for PKS Cluster "
-									+ serviceInstanceId);
-						} catch (KubernetesClientException e) {
-							state = OperationState.FAILED;
-							LOG.error("Error Creating Service Account " + serviceAccount.toString() + " on PKS Cluster "
-									+ serviceInstanceId);
-							e.printStackTrace();
-							client.close();
-							return;
-						}
-					} else {
-						state = OperationState.FAILED;
-						client.close();
-						LOG.error("Loaded resource is not an Account! " + serviceInstanceId);
-						return;
-					}
-
-					break;
-				case "ClusterRoleBinding":
-					KubernetesClusterRoleBinding clusterRoleBinding = client.rbac().kubernetesClusterRoleBindings()
-							.load(resourceIOStream).get();
-					if (clusterRoleBinding instanceof KubernetesClusterRoleBinding) {
-						try {
-							String currentNameSpace = clusterRoleBinding.getMetadata().getNamespace();
-							changeClient(jsonClusterContext, currentNameSpace);
-							client.rbac().kubernetesClusterRoleBindings().createOrReplace(clusterRoleBinding);
-							LOG.info(action.toString() + " ClusterRoleBinding "
-									+ clusterRoleBinding.getMetadata().getName() + " on PKS Custer "
-									+ serviceInstanceId);
-							LOG.debug(clusterRoleBinding.toString());
-						} catch (KubernetesClientException e) {
-							LOG.error("Failed Creating Kibosh Helm Tiller ClusterRoleBinding on PKS Custer "
-									+ serviceInstanceId);
-							state = OperationState.FAILED;
-							e.printStackTrace();
-							client.close();
-							return;
-						}
-
-					} else {
-						state = OperationState.FAILED;
-						LOG.error("Loaded resource is not a Role Binding! " + serviceInstanceId);
-						client.close();
-						return;
-					}
-					break;
-				case "StorageClass":
-					StorageClass storageClass = client.storage().storageClasses().load(resourceIOStream).get();
-					if (storageClass instanceof StorageClass)
-						try {
-							String currentNameSpace = storageClass.getMetadata().getNamespace();
-							changeClient(jsonClusterContext, currentNameSpace);
-							if (client.storage().storageClasses().withName(storageClass.getMetadata().getName())
-									.fromServer().get() == null)
-								client.storage().storageClasses().createOrReplace(storageClass);
-							else
-								skipping = "Skipping ";
-
-							LOG.info(skipping + action + " of StorageClass for PKS Cluster: " + serviceInstanceId
-									+ ". Already found");
-
-						} catch (Exception e) {
-							LOG.error("Error Creating Storage Class" + storageClass.toString() + " on PKS Cluster "
-									+ serviceInstanceId);
-							LOG.error(e);
-							state = OperationState.FAILED;
-							client.close();
-							return;
-						}
-
-					break;
-				case "Deployment":
-					Deployment deployment = client.apps().deployments().load(resourceIOStream).get();
-					if (deployment instanceof Deployment) {
-						try {
-							String currentNameSpace = deployment.getMetadata().getNamespace();
-							changeClient(jsonClusterContext, currentNameSpace);
-							client.apps().deployments().createOrReplace(deployment);
-
-							LOG.info(action.toString() + " Deployment " + deployment.getMetadata().getName()
-									+ " on PKS Cluster " + serviceInstanceId);
-						} catch (KubernetesClientException e) {
-							state = OperationState.FAILED;
-							LOG.error("Error Creating Kibosh Deployment " + deployment.toString() + " on PKS Cluster "
-									+ serviceInstanceId);
-							client.close();
-							e.printStackTrace();
-							return;
-						}
-					} else {
-						state = OperationState.FAILED;
-						LOG.error("Loaded resource is not a Deployment! " + serviceInstanceId);
-						client.close();
-						return;
-					}
-
-					break;
-				case "Service":
-					Service service = client.services().load(resourceIOStream).get();
-					if (service instanceof Service) {
-						try {
-							String currentNameSpace = service.getMetadata().getNamespace();
-							changeClient(jsonClusterContext, currentNameSpace);
-							service = client.services().createOrReplace(service);
-							LOG.info(action.toString() + " KIBOSH Service on PKS Custer " + serviceInstanceId);
-						} catch (KubernetesClientException e) {
-							state = OperationState.FAILED;
-							LOG.error("Failed creating KIBOSH Service on PKS Custer " + serviceInstanceId);
-							client.close();
-							e.printStackTrace();
-						}
-
-					} else {
-						state = OperationState.FAILED;
-						LOG.error("Loaded resource is not a Service! " + serviceInstanceId);
-						client.close();
-						return;
-					}
-					break;
-				case "ConfigMap":
-					ConfigMap configMap = client.configMaps().load(resourceIOStream).get();
-					if (configMap instanceof ConfigMap) {
-						String currentNameSpace = configMap.getMetadata().getNamespace();
-						changeClient(jsonClusterContext, currentNameSpace);
-						client.configMaps().createOrReplace(configMap);
-					}
-					break;
-
-				default:
-					LOG.error("Loading of  Resource with type: " + resource.get("type") + " not yet supported "
-							+ resource.toString());
-					break;
-				}
-				LOG.info(action + " " + resource.get("kind") + " from " + sourceLocation + " " + resource.toString()
-						+ " on PKS Cluster" + serviceInstanceId);
-
-			});
-			;
+			Yaml yamlHandler = new Yaml();
+			yamlHandler.loadAll(resourceInputStream).forEach(resourceObject -> typedResources
+					.add(loadResource(resourceObject, jsonClusterContext, sourceLocation)));
 		});
+		return typedResources;
 
 	};
+
+	private Object loadResource(Object resourceObject, JSONObject jsonClusterContext, String sourceLocation) {
+		// TODO Auto-generated method stub
+		Yaml yamlHandler = new Yaml();
+		@SuppressWarnings("unchecked")
+		JSONObject resource = new JSONObject((HashMap<String, String>) resourceObject);
+		InputStream resourceIOStream = null;
+		try {
+			resourceIOStream = IOUtils.toInputStream(yamlHandler.dump(resourceObject), "UTF-8");
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			LOG.error("Error loading " + resourceObject.toString());
+			e.printStackTrace();
+		}
+		String currentNamespace = "";
+		try {
+			currentNamespace = resource.getJSONObject("metadata").getString("namespace");
+		} catch (Exception e2) {
+			// This most probably means that the resource does not use or provide a
+			// Namespace. This can either be caused by a bad config provided in the yaml
+		}
+		changeClient(jsonClusterContext, currentNamespace);
+		switch (resource.getString("kind")) {
+		case "ClusterRole":
+			KubernetesClusterRole kubeClusterRole = client.rbac().kubernetesClusterRoles().load(resourceIOStream).get();
+
+			if (kubeClusterRole instanceof KubernetesClusterRole) {
+				return kubeClusterRole;
+			} else {
+				LOG.error("PKS Cluster: " + serviceInstanceId + "+Could not parse " + resource.toString());
+				return null;
+			}
+		case "Namespace":
+			Namespace namespace = client.namespaces().load(resourceIOStream).get();
+
+			if (namespace instanceof Namespace) {
+				return namespace;
+			} else {
+				return null;
+			}
+		case "ServiceAccount":
+			ServiceAccount serviceAccount = client.serviceAccounts().load(resourceIOStream).get();
+			if (serviceAccount instanceof ServiceAccount) {
+				return serviceAccount;
+			} else {
+				state = OperationState.FAILED;
+				client.close();
+				LOG.error("Loaded resource is not an Account! " + serviceInstanceId);
+				return null;
+			}
+		case "ClusterRoleBinding":
+			KubernetesClusterRoleBinding clusterRoleBinding = client.rbac().kubernetesClusterRoleBindings()
+					.load(resourceIOStream).get();
+			if (clusterRoleBinding instanceof KubernetesClusterRoleBinding) {
+				return clusterRoleBinding;
+			} else {
+				state = OperationState.FAILED;
+				LOG.error("Loaded resource is not a Role Binding! " + serviceInstanceId);
+				client.close();
+				return null;
+			}
+		case "StorageClass":
+			StorageClass storageClass = client.storage().storageClasses().load(resourceIOStream).get();
+			if (storageClass instanceof StorageClass)
+				return storageClass;
+			else {
+				// TODO
+			}
+			break;
+		case "Deployment":
+			Deployment deployment = client.apps().deployments().load(resourceIOStream).get();
+			if (deployment instanceof Deployment) {
+				return deployment;
+			} else {
+				state = OperationState.FAILED;
+				LOG.error("Loaded resource is not a Deployment! " + serviceInstanceId);
+				client.close();
+				return null;
+			}
+		case "Service":
+			Service service = client.services().load(resourceIOStream).get();
+			if (service instanceof Service) {
+				return service;
+
+			} else {
+				state = OperationState.FAILED;
+				LOG.error("Loaded resource is not a Service! " + serviceInstanceId);
+				client.close();
+				return null;
+			}
+		case "ConfigMap":
+			ConfigMap configMap = client.configMaps().load(resourceIOStream).get();
+			if (configMap instanceof ConfigMap)
+				return configMap;
+			else
+				break;
+
+		default:
+			LOG.error("Loading of  Resource with type: " + resource.get("type") + " not yet supported "
+					+ resource.toString());
+			return null;
+		}
+		LOG.info(action + " " + resource.get("kind") + " from " + sourceLocation + " " + resource.toString()
+				+ " on PKS Cluster" + serviceInstanceId);
+
+		client.close();
+		return null;
+	}
 
 	// GETTER & SETTER Block
 	public BrokerAction getAction() {
