@@ -259,7 +259,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			LOG.debug("Reserving Kibosh Port " + runner.kiboshExternalPort + "; Bazaar Port: "
 					+ runner.bazaarExternalPort);
 		}
-		if (provisionKibosh) {
+		if (runner.provisionKibosh) {
 			addKiboshDataToMap(runner);
 		} else {
 			removeKiboshDataFromMap(runner);
@@ -795,7 +795,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
-					LOG.error("Error Creating Config Map" + configMap.toString() + " on PKS Cluster "
+					LOG.error("Error "+applyAction+"  Config Map" + configMap.toString() + " on PKS Cluster "
 							+ serviceInstanceId);
 					client.close();
 					LOG.error(e);
@@ -811,7 +811,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 						secret = client.secrets().createOrReplace(secret);
 					LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
 				} catch (Exception e) {
-					LOG.error("Error Creating Route Registrar Secret " + secret.toString() + " on PKS Cluster "
+					LOG.error("Error "+applyAction+"  Route Registrar Secret " + secret.toString() + " on PKS Cluster "
 							+ serviceInstanceId);
 					LOG.error(e);
 					state = OperationState.FAILED;
@@ -836,7 +836,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 							+ serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
-					LOG.error("Error Creating Service Account " + serviceAccount.toString() + " on PKS Cluster "
+					LOG.error("Error " + applyAction + "  Service Account " + serviceAccount.toString() + " on PKS Cluster "
 							+ serviceInstanceId);
 					e.printStackTrace();
 					client.close();
