@@ -63,27 +63,12 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		String serviceInstanceId = request.getServiceInstanceId();
 
 		String planName = getPlan(request.getPlanId(), request.getServiceDefinition()).getName();
-
+		JSONObject custom_params = new JSONObject(request.getParameters());
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)
 				|| !addonDeploymentRunnables.get(serviceInstanceId).getState().equals(OperationState.IN_PROGRESS)) {
 			addonDeploymentRunnables.put(serviceInstanceId,
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
-							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP));
-			Map<String, Object> custom_params = request.getParameters();
-			custom_params.keySet().iterator().forEachRemaining(key -> {
-				switch (key) {
-				case "provision_kibosh": {
-					Boolean provision_kibosh = (Boolean) request.getParameters().get(key);
-					LOG.info("Provisioning Kibosh on PKS Cluster: " + serviceInstanceId + " is set to "
-							+ provision_kibosh);
-					addonDeploymentRunnables.get(serviceInstanceId).setProvisionKibosh(provision_kibosh);
-					break;
-				}
-				default:
-					break;
-				}
-			});
-
+							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP, custom_params));
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.start();
 			thread.setName(serviceInstanceId);
@@ -92,43 +77,19 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 					+ request.getContext());
 		}
 
-		Map<String, String> clusterConfigData = addonDeploymentRunnables.get(serviceInstanceId).getClusterConfigMap()
-				.getData();
-		JSONObject dashboards = new JSONObject();
-		String KUBE_API_HTTP_ADDR = clusterConfigData.get("kubernetes.protocoll")
-				+ clusterConfigData.get("kubernetes.fqdn") + ":" + clusterConfigData.get("kubernetes.port");
-		String BAZAAR_API_HTTP_ADDR = clusterConfigData.get("bazaar.protocoll") + clusterConfigData.get("bazaar.fqdn")
-				+ ":" + clusterConfigData.get("bazaar.port");
-
-		String KIBOSH_API_HTTP_ADDR = clusterConfigData.get("kibosh.protocoll") + clusterConfigData.get("kibosh.fqdn")
-				+ ":" + clusterConfigData.get("kibosh.port");
-		dashboards.put("kube_api", KUBE_API_HTTP_ADDR);
-		dashboards.put("kibosh_service_broker", KIBOSH_API_HTTP_ADDR);
-		dashboards.put("kibosh_bazaar_endpoint", BAZAAR_API_HTTP_ADDR);
-
-		return CreateServiceInstanceResponse.builder().dashboardUrl(dashboards.toString()).async(true).build();
+		return CreateServiceInstanceResponse.builder().async(true).build();
 	}
 
 	public UpdateServiceInstanceResponse updateServiceInstance(UpdateServiceInstanceRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
 		String planName = "";
+		JSONObject custom_params = new JSONObject(request.getParameters());
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)
 				|| !addonDeploymentRunnables.get(serviceInstanceId).getState().equals(OperationState.IN_PROGRESS)) {
 			addonDeploymentRunnables.put(serviceInstanceId,
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
-							BrokerAction.UPDATE, serviceInstanceId, planName, RoutingLayer.HTTP));
-			Map<String, Object> custom_params = request.getParameters();
-			custom_params.keySet().iterator().forEachRemaining(key -> {
-				switch (key) {
-				case "provision_kibosh": {
-					addonDeploymentRunnables.get(serviceInstanceId)
-							.setProvisionKibosh((Boolean) request.getParameters().get(key));
-					break;
-				}
-				default:
-					break;
-				}
-			});
+							BrokerAction.UPDATE, serviceInstanceId, planName, RoutingLayer.HTTP, custom_params));
+
 			Thread thread = new Thread(addonDeploymentRunnables.get(serviceInstanceId));
 			thread.setName(serviceInstanceId);
 			thread.start();
@@ -161,21 +122,28 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		if (!addonDeploymentRunnables.containsKey(serviceInstanceId)) {
 			addonDeploymentRunnables.put(serviceInstanceId,
 					(PKSServiceInstanceAddonDeploymentsRunnable) appContext.getBean("addonDeploymentRunnable",
-							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP));
+							Config.BrokerAction.CREATE, serviceInstanceId, planName, RoutingLayer.HTTP,
+							new JSONObject()));
 		}
 		Map<String, String> clusterConfigData = addonDeploymentRunnables.get(serviceInstanceId).getClusterConfigMap()
 				.getData();
-		JSONObject dashboards = new JSONObject();
-		String KUBE_API_HTTP_ADDR = clusterConfigData.get("kubernetes.protocoll")
-				+ clusterConfigData.get("kubernetes.fqdn") + ":" + clusterConfigData.get("kubernetes.port");
-		String BAZAAR_API_HTTP_ADDR = clusterConfigData.get("bazaar.protocoll") + clusterConfigData.get("bazaar.fqdn")
-				+ ":" + clusterConfigData.get("bazaar.port");
 
-		String KIBOSH_API_HTTP_ADDR = clusterConfigData.get("kibosh.protocoll") + clusterConfigData.get("kibosh.fqdn")
-				+ ":" + clusterConfigData.get("kibosh.port");
-		dashboards.put("kube_api", KUBE_API_HTTP_ADDR);
-		dashboards.put("kibosh_service_broker", KIBOSH_API_HTTP_ADDR);
-		dashboards.put("kibosh_bazaar_endpoint", BAZAAR_API_HTTP_ADDR);
+		JSONObject dashboards = new JSONObject();
+		if (clusterConfigData.containsKey("kubernetes.fqdn") && clusterConfigData.containsKey("kubernetes.port")
+				&& clusterConfigData.containsKey("kubernetes.protocol")) {
+			dashboards.put("kube_api", clusterConfigData.get("kubernetes.protocol")
+					+ clusterConfigData.get("kubernetes.fqdn") + ":" + clusterConfigData.get("kubernetes.port"));
+		}
+		if (clusterConfigData.containsKey("bazaar.fqdn") && clusterConfigData.containsKey("bazaar.port")
+				&& clusterConfigData.containsKey("bazaar.protocol")) {
+			dashboards.put("kibosh_bazaar_endpoint", clusterConfigData.get("bazaar.protocol")
+					+ clusterConfigData.get("bazaar.fqdn") + ":" + clusterConfigData.get("bazaar.port"));
+		}
+		if (clusterConfigData.containsKey("kibosh.fqdn") && clusterConfigData.containsKey("kibosh.port")
+				&& clusterConfigData.containsKey("kibosh.protocol")) {
+			dashboards.put("kibosh_service_broker", clusterConfigData.get("kibosh.protocol")
+					+ clusterConfigData.get("kibosh.fqdn") + ":" + clusterConfigData.get("kibosh.port"));
+		}
 		addonDeploymentRunnables.remove(serviceInstanceId);
 		return GetServiceInstanceResponse.builder().dashboardUrl(dashboards.toString()).build();
 	}
@@ -185,16 +153,16 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 		OperationState state = addonDeploymentRunnables.get(serviceInstanceId).getState();
 		String operationStateMessage = addonDeploymentRunnables.get(serviceInstanceId).getOperationStateMessage();
 		BrokerAction lastPKSAction = addonDeploymentRunnables.get(serviceInstanceId).getAction();
-		switch (lastPKSAction) {
-		case CREATE:
-			break;
-		case UPDATE:
-			break;
-		case GET:
-			break;
-		case DELETE:
-			break;
-		}
+//		switch (lastPKSAction) {
+//		case CREATE:
+//			break;
+//		case UPDATE:
+//			break;
+//		case GET:
+//			break;
+//		case DELETE:
+//			break;
+//		}
 		if (state.equals(OperationState.SUCCEEDED) || state.equals(OperationState.FAILED)) {
 			LOG.info("Completed " + lastPKSAction + " of PKS Cluster: " + serviceInstanceId + " with " + state);
 			addonDeploymentRunnables.remove(serviceInstanceId);
