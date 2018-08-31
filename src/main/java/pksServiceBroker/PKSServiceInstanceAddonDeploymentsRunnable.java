@@ -218,11 +218,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				LOG.info("ConfigMap with ClusterData found on PKS Cluster " + runner.serviceInstanceId);
 				runner.setClusterConfigMap(
 						client.configMaps().withName("cluster-addon-deployment-data").fromServer().get());
-				if (provisionKibosh) {
-					addKiboshDataToMap(runner);
-				} else {
-					removeKiboshDataFromMap(runner);
-				}
 
 			} catch (Exception e) {
 				client.close();
