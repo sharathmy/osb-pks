@@ -56,7 +56,8 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		LOG.info(request.getOriginatingIdentity() + " requested creation of Credentials PKS Cluster "
 				+ serviceInstanceId + " for " + request.getContext());
 		PKSServiceInstanceAddonDeploymentsRunnable runner = (PKSServiceInstanceAddonDeploymentsRunnable) appContext
-				.getBean("addonDeploymentRunnable", Config.BrokerAction.GET, serviceInstanceId, "", RoutingLayer.HTTP);
+				.getBean("addonDeploymentRunnable", Config.BrokerAction.GET, serviceInstanceId, "", RoutingLayer.HTTP,
+						new JSONObject());
 		JSONObject clusterCredentials = new JSONObject(runner.getClusterConfigMap().getData());
 		JSONObject response = new JSONObject(pksRestTemplate.postForObject(
 				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
@@ -79,7 +80,8 @@ public class PKSServiceInstanceBindingService implements ServiceInstanceBindingS
 		LOG.info(request.getOriginatingIdentity() + " requested retrieval of Credentials PKS Cluster "
 				+ serviceInstanceId);
 		PKSServiceInstanceAddonDeploymentsRunnable runner = (PKSServiceInstanceAddonDeploymentsRunnable) appContext
-				.getBean("addonDeploymentRunnable", Config.BrokerAction.GET, serviceInstanceId, "", RoutingLayer.HTTP);
+				.getBean("addonDeploymentRunnable", Config.BrokerAction.GET, serviceInstanceId, "", RoutingLayer.HTTP,
+						new JSONObject());
 		JSONObject clusterCredentials = new JSONObject(runner.getClusterConfigMap().getData());
 		JSONObject response = new JSONObject(pksRestTemplate.postForObject(
 				"https://" + PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId + "/binds", requestObject,
