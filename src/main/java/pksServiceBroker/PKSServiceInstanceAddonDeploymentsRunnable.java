@@ -416,7 +416,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		return cont;
 	}
 
-	public Deployment createRouteRegDeployment(JSONObject kubeConfig, int internalPort, List<Object> internalIPs,
+	public Deployment createRouteRegDeploymentResource(JSONObject kubeConfig, int internalPort, List<Object> internalIPs,
 			int externalPort, String componentName, RoutingLayer routingLayer) throws FileNotFoundException {
 		String deploymentName = pksServiceBroker.Config.ROUTE_DEPLOYMENT_PREFIX + componentName;
 
@@ -486,7 +486,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	}
 
-	protected void createKiboshDeployment(JSONObject jsonClusterContext) throws FileNotFoundException {
+	protected void applyKiboshDeployment(JSONObject jsonClusterContext) throws FileNotFoundException {
+
 		ArrayList<Object> typedResourceList = createTypedResources(sbConfig.getDefaultAddons(), jsonClusterContext);
 
 		JSONArray nodeIPs = new JSONArray();
@@ -495,23 +496,31 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		});
 
 		// First run, apply static resources
-		applyTypedResource(typedResourceList);
+		if (provisionKibosh)
+			applyTypedResource(typedResourceList, "CREATE");
+		else
+			applyTypedResource(typedResourceList, "DELETE");
 
 		LOG.debug("Will use NodeIPs: " + nodeIPs.toString() + " for route Registration on PKS Cluster: "
 				+ serviceInstanceId);
 		changeClient(jsonClusterContext, "kube-system");
 
 		typedResourceList = new ArrayList<>();
-		typedResourceList.add(createRouteRegDeployment(jsonClusterContext,
-				client.services().withName("kibosh-np").fromServer().get().getSpec().getPorts().get(0).getNodePort(),
-				nodeIPs.toList(), kiboshExternalPort, pksServiceBroker.Config.KIBOSH_NAME, kiboshRoutingLayer));
+		typedResourceList.add(createRouteRegDeploymentResource(jsonClusterContext, provisionKibosh
+				? client.services().withName("kibosh-np").fromServer().get().getSpec().getPorts().get(0).getNodePort()
+				: 0, nodeIPs.toList(), kiboshExternalPort, pksServiceBroker.Config.KIBOSH_NAME, kiboshRoutingLayer));
 
-		typedResourceList.add(createRouteRegDeployment(jsonClusterContext,
-				client.services().withName("kibosh-bazaar-np").fromServer().get().getSpec().getPorts().get(0)
-						.getNodePort(),
+		typedResourceList.add(createRouteRegDeploymentResource(jsonClusterContext,
+				provisionKibosh
+						? client.services().withName("kibosh-bazaar-np").fromServer().get().getSpec().getPorts().get(0)
+								.getNodePort()
+						: 0,
 				nodeIPs.toList(), bazaarExternalPort, pksServiceBroker.Config.BAZAAR_NAME, kiboshRoutingLayer));
 		// second run apply dynamic resources
-		applyTypedResource(typedResourceList);
+		if (provisionKibosh)
+			applyTypedResource(typedResourceList, "CREATE");
+		else
+			applyTypedResource(typedResourceList, "DELETE");
 		client.close();
 	}
 
@@ -621,7 +630,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		// CREATE ROUTE REG DEPLOYMENT FOR MASTER
 		Deployment routeRegDeployment;
 		try {
-			routeRegDeployment = createRouteRegDeployment(jsonClusterContext,
+			routeRegDeployment = createRouteRegDeploymentResource(jsonClusterContext,
 					pksServiceBroker.Config.KUBERNETES_MASTER_PORT,
 					jsonClusterInfo.getJSONArray("kubernetes_master_ips").toList(),
 					jsonClusterInfo.getJSONObject("parameters").getInt("kubernetes_master_port"), "master",
@@ -641,7 +650,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		operationStateMessage = "Cluster created, creating route emitter pod";
 		LOG.info("Deploying Addons on PKS Cluster " + serviceInstanceId);
-		applyTypedResource(typedResourceList);
+		applyTypedResource(typedResourceList, "CREATE");
 
 		// CHECK IF PKS CLUSTER ALREADY HAS A ROUTE EMITTER POD RUNNING
 		while (checkRouteRegDeploymentMaster(jsonClusterContext, "master") && !state.equals(OperationState.FAILED)) {
@@ -662,14 +671,12 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		LOG.trace("Operators: " + sbConfig.getDefaultOperators());
 		createTypedResources(sbConfig.getDefaultOperators(), jsonClusterContext);
 
-		if (provisionKibosh) {
-			try {
-				createKiboshDeployment(jsonClusterContext);
+		try {
+			applyKiboshDeployment(jsonClusterContext);
 
-			} catch (FileNotFoundException e) {
-				client.close();
-				e.printStackTrace();
-			}
+		} catch (FileNotFoundException e) {
+			client.close();
+			e.printStackTrace();
 		}
 
 		operationStateMessage = "finished deployment";
@@ -678,20 +685,23 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		LOG.info("Finished addon Deployments on PKS Cluster: " + serviceInstanceId);
 	}
 
-	private void applyTypedResource(ArrayList<Object> typedResourceList) {
+	private void applyTypedResource(ArrayList<Object> typedResourceList, String applyAction) {
 		typedResourceList.forEach(resource -> {
 			String skipping = "";
 			switch (resource.getClass().getName()) {
 			case "io.fabric8.kubernetes.api.model.Service":
 				Service service = (Service) resource;
 				try {
-					service = client.services().createOrReplace(service);
-					LOG.info(action.toString() + " Service " + service.getMetadata().getName() + " on PKS Custer "
+					if (applyAction.equals("DELETE"))
+						client.services().delete(service);
+					else
+						service = client.services().createOrReplace(service);
+					LOG.info(applyAction + " Service " + service.getMetadata().getName() + " on PKS Custer "
 							+ serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
-					LOG.error("Failed creating Service " + service.getMetadata().getName() + " on PKS Custer "
-							+ serviceInstanceId);
+					LOG.error("Error in " + applyAction + " Service " + service.getMetadata().getName()
+							+ " on PKS Custer " + serviceInstanceId);
 					client.close();
 					e.printStackTrace();
 					return;
@@ -700,10 +710,13 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			case "io.fabric8.kubernetes.api.model.Namespace":
 				Namespace namespace = (Namespace) resource;
 				try {
-					namespace = client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
-							.get() == null ? client.namespaces().createOrReplace(namespace)
-									: client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
-											.get();
+					if (applyAction.equals("DELETE"))
+						client.namespaces().withName(namespace.getMetadata().getName()).delete();
+					else
+						namespace = client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
+								.get() == null ? client.namespaces().createOrReplace(namespace)
+										: client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
+												.get();
 				} catch (Exception e) {
 					client.namespaces().withName(namespace.getMetadata().getName()).fromServer().get();
 				}
@@ -711,12 +724,15 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			case "io.fabric8.kubernetes.api.model.apps.Deployment":
 				Deployment deployment = (Deployment) resource;
 				try {
-					client.apps().deployments().createOrReplace(deployment);
-					LOG.info(action.toString() + " Deployment " + deployment.getMetadata().getName()
-							+ " on PKS Cluster " + serviceInstanceId);
+					if (applyAction.equals("DELETE"))
+						client.apps().deployments().delete(deployment);
+					else
+						client.apps().deployments().createOrReplace(deployment);
+					LOG.info(applyAction + " Deployment " + deployment.getMetadata().getName() + " on PKS Cluster "
+							+ serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
-					LOG.error("Error Creating Deployment " + deployment.toString() + " on PKS Cluster "
+					LOG.error("Error in " + applyAction + " Deployment " + deployment.toString() + " on PKS Cluster "
 							+ serviceInstanceId);
 					client.close();
 					e.printStackTrace();
@@ -728,16 +744,18 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				try {
 					if (client.storage().storageClasses().withName(storageClass.getMetadata().getName()).fromServer()
 							.get() == null)
-						client.storage().storageClasses().createOrReplace(storageClass);
+						if (applyAction.equals("DELETE"))
+							;
+						else
+							client.storage().storageClasses().createOrReplace(storageClass);
 					else
 						skipping = "Skipping ";
 
-					LOG.info(skipping + action + " of StorageClass for PKS Cluster: " + serviceInstanceId
-							+ ". Already found");
+					LOG.info(skipping + applyAction + " of StorageClass for PKS Cluster: " + serviceInstanceId);
 
 				} catch (Exception e) {
-					LOG.error("Error Creating Storage Class" + storageClass.toString() + " on PKS Cluster "
-							+ serviceInstanceId);
+					LOG.error("Error in " + applyAction + " Storage Class" + storageClass.toString()
+							+ " on PKS Cluster " + serviceInstanceId);
 					LOG.error(e);
 					state = OperationState.FAILED;
 					client.close();
@@ -747,13 +765,16 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			case "io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding":
 				KubernetesClusterRoleBinding clusterRoleBinding = (KubernetesClusterRoleBinding) resource;
 				try {
-					client.rbac().kubernetesClusterRoleBindings().createOrReplace(clusterRoleBinding);
-					LOG.info(action.toString() + " ClusterRoleBinding " + clusterRoleBinding.getMetadata().getName()
+					if (applyAction.equals("DELETE"))
+						client.rbac().kubernetesClusterRoleBindings().delete(clusterRoleBinding);
+					else
+						client.rbac().kubernetesClusterRoleBindings().createOrReplace(clusterRoleBinding);
+					LOG.info(applyAction + " ClusterRoleBinding " + clusterRoleBinding.getMetadata().getName()
 							+ " on PKS Custer " + serviceInstanceId);
 					LOG.debug(clusterRoleBinding.toString());
 				} catch (KubernetesClientException e) {
-					LOG.error(
-							"Failed Creating Kibosh Helm Tiller ClusterRoleBinding on PKS Custer " + serviceInstanceId);
+					LOG.error("Error in " + applyAction + " Kibosh Helm Tiller ClusterRoleBinding on PKS Custer "
+							+ serviceInstanceId);
 					state = OperationState.FAILED;
 					e.printStackTrace();
 					client.close();
@@ -767,7 +788,10 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			case "io.fabric8.kubernetes.api.model.ConfigMap":
 				ConfigMap configMap = (ConfigMap) resource;
 				try {
-					configMap = client.configMaps().createOrReplace(clusterConfigMap);
+					if (applyAction.equals("DELETE"))
+						client.configMaps().delete(clusterConfigMap);
+					else
+						configMap = client.configMaps().createOrReplace(clusterConfigMap);
 					LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
@@ -781,7 +805,10 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			case "io.fabric8.kubernetes.api.model.Secret":
 				Secret secret = (Secret) resource;
 				try {
-					secret = client.secrets().createOrReplace(secret);
+					if (applyAction.equals("DELETE"))
+						client.secrets().delete(secret);
+					else
+						secret = client.secrets().createOrReplace(secret);
 					LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
 				} catch (Exception e) {
 					LOG.error("Error Creating Route Registrar Secret " + secret.toString() + " on PKS Cluster "
@@ -797,7 +824,10 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				try {
 					if (client.serviceAccounts().withName(serviceAccount.getMetadata().getName()).fromServer()
 							.get() == null) {
-						serviceAccount = client.serviceAccounts().createOrReplace(serviceAccount);
+						if (applyAction.equals("DELETE"))
+							client.serviceAccounts().delete(serviceAccount);
+						else
+							serviceAccount = client.serviceAccounts().createOrReplace(serviceAccount);
 
 					} else {
 						skipping = "Skipping ";
