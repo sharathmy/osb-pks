@@ -78,6 +78,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	@Autowired
 	pksServiceBroker.Config sbConfig;
+
 	private static String clusterConfigMapFilename = "config/kibosh-external-hostnames-config-map.yaml";
 	private static String routeEmitDeploymentFilename = "config/route-reg-deployment.yaml";
 	private static String routeRegSecretFilename = "config/route-registrar-credentials.yaml";
@@ -196,6 +197,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					.put("parameters", new JSONObject().put("kubernetes_master_host", sbConfig.TCP_FQDN)
 							.put("kubernetes_master_port", runner.kubeExternalPort));
 			runner.pksRequestObject = new HttpEntity<String>(payload.toString(), runner.pksHeaders);
+
 			createConfigMap(runner);
 			break;
 		case GET:
@@ -273,39 +275,36 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		LOG.trace("PKS Cluster: " + runner.serviceInstanceId
 				+ " Kibosh set to true, adding related ClusterConfig Data from Map");
 		String prefix = runner.kiboshRoutingLayer.equals(RoutingLayer.HTTP) ? "https://" : "http://";
-		if (!runner.clusterConfigMap.getData().containsKey("kibosh.fqdn"))
-			runner.clusterConfigMap.getData().put("kibosh.fqdn",
-					getComponentHostname(pksServiceBroker.Config.KIBOSH_NAME, runner));
 
-		if (!runner.clusterConfigMap.getData().containsKey("kibosh.port"))
-			runner.clusterConfigMap.getData().put("kibosh.port",
-					kiboshExternalPort == 0 ? "443" : Integer.toString(kiboshExternalPort));
+		runner.clusterConfigMap.getData().put("kibosh.fqdn",
+				getComponentHostname(pksServiceBroker.Config.KIBOSH_NAME, runner));
 
-		if (!runner.clusterConfigMap.getData().containsKey("kibosh.user"))
+		runner.clusterConfigMap.getData().put("kibosh.port",
+				runner.kiboshExternalPort == 0 ? "443" : Integer.toString(runner.kiboshExternalPort));
+
+		if (!runner.clusterConfigMap.getData().containsKey("kibosh.user")
+				|| runner.clusterConfigMap.getData().get("kibosh.user") == null)
 			runner.clusterConfigMap.getData().put("kibosh.user", java.util.UUID.randomUUID().toString());
-
-		if (!runner.clusterConfigMap.getData().containsKey("kibosh.password"))
+		if (!runner.clusterConfigMap.getData().containsKey("kibosh.password")
+				| runner.clusterConfigMap.getData().get("kibosh.password") == null)
 			runner.clusterConfigMap.getData().put("kibosh.password", java.util.UUID.randomUUID().toString());
+		runner.clusterConfigMap.getData().put("kibosh.protocol", prefix);
 
-		if (!runner.clusterConfigMap.getData().containsKey("kibosh.protocol"))
-			runner.clusterConfigMap.getData().put("kibosh.protocol", prefix);
+		runner.clusterConfigMap.getData().put("bazaar.fqdn",
+				getComponentHostname(pksServiceBroker.Config.BAZAAR_NAME, runner));
 
-		if (!runner.clusterConfigMap.getData().containsKey("bazaar.fqdn"))
-			runner.clusterConfigMap.getData().put("bazaar.fqdn",
-					getComponentHostname(pksServiceBroker.Config.BAZAAR_NAME, runner));
-
-		if (!runner.clusterConfigMap.getData().containsKey("bazaar.user"))
+		if (!runner.clusterConfigMap.getData().containsKey("bazaar.user")
+				|| runner.clusterConfigMap.getData().get("bazaar.user") == null)
 			runner.clusterConfigMap.getData().put("bazaar.user", java.util.UUID.randomUUID().toString());
 
-		if (!runner.clusterConfigMap.getData().containsKey("bazaar.password"))
+		if (!runner.clusterConfigMap.getData().containsKey("bazaar.password")
+				|| runner.clusterConfigMap.getData().get("bazaar.password") == null)
 			runner.clusterConfigMap.getData().put("bazaar.password", java.util.UUID.randomUUID().toString());
 
-		if (!runner.clusterConfigMap.getData().containsKey("bazaar.port"))
-			runner.clusterConfigMap.getData().put("bazaar.port",
-					bazaarExternalPort == 0 ? "443" : Integer.toString(bazaarExternalPort));
+		runner.clusterConfigMap.getData().put("bazaar.port",
+				bazaarExternalPort == 0 ? "443" : Integer.toString(bazaarExternalPort));
 
-		if (!runner.clusterConfigMap.getData().containsKey("bazaar.protocol"))
-			runner.clusterConfigMap.getData().put("bazaar.protocol", prefix);
+		runner.clusterConfigMap.getData().put("bazaar.protocol", prefix);
 	}
 
 	private void removeKiboshDataFromMap(PKSServiceInstanceAddonDeploymentsRunnable runner) {
@@ -416,8 +415,9 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		return cont;
 	}
 
-	public Deployment createRouteRegDeploymentResource(JSONObject kubeConfig, int internalPort, List<Object> internalIPs,
-			int externalPort, String componentName, RoutingLayer routingLayer) throws FileNotFoundException {
+	public Deployment createRouteRegDeploymentResource(JSONObject kubeConfig, int internalPort,
+			List<Object> internalIPs, int externalPort, String componentName, RoutingLayer routingLayer)
+			throws FileNotFoundException {
 		String deploymentName = pksServiceBroker.Config.ROUTE_DEPLOYMENT_PREFIX + componentName;
 
 		Deployment routeEmitDeployment = client.apps().deployments()
@@ -795,7 +795,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
-					LOG.error("Error "+applyAction+"  Config Map" + configMap.toString() + " on PKS Cluster "
+					LOG.error("Error " + applyAction + "  Config Map" + configMap.toString() + " on PKS Cluster "
 							+ serviceInstanceId);
 					client.close();
 					LOG.error(e);
@@ -811,8 +811,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 						secret = client.secrets().createOrReplace(secret);
 					LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
 				} catch (Exception e) {
-					LOG.error("Error "+applyAction+"  Route Registrar Secret " + secret.toString() + " on PKS Cluster "
-							+ serviceInstanceId);
+					LOG.error("Error " + applyAction + "  Route Registrar Secret " + secret.toString()
+							+ " on PKS Cluster " + serviceInstanceId);
 					LOG.error(e);
 					state = OperationState.FAILED;
 					client.close();
@@ -836,8 +836,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 							+ serviceInstanceId);
 				} catch (KubernetesClientException e) {
 					state = OperationState.FAILED;
-					LOG.error("Error " + applyAction + "  Service Account " + serviceAccount.toString() + " on PKS Cluster "
-							+ serviceInstanceId);
+					LOG.error("Error " + applyAction + "  Service Account " + serviceAccount.toString()
+							+ " on PKS Cluster " + serviceInstanceId);
 					e.printStackTrace();
 					client.close();
 				}
