@@ -4,17 +4,17 @@ data:
   kibosh.port:
   kibosh.user:
   kibosh.password:
-  kibosh.protocoll:
+  kibosh.protocol:
     
   bazaar.fqdn:
   bazaar.port:
   bazaar.user:
   bazaar.password:
-  bazaar.protocoll:
+  bazaar.protocol:
     
   kubernetes.fqdn:
   kubernetes.port:
-  kubernetes.protocoll:
+  kubernetes.protocol:
   
 kind: ConfigMap
 metadata:
