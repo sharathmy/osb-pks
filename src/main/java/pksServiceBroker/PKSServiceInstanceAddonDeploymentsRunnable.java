@@ -17,6 +17,7 @@ import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRole;
 import io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding;
+import io.fabric8.kubernetes.api.model.rbac.KubernetesRole;
 import io.fabric8.kubernetes.api.model.storage.StorageClass;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
@@ -113,16 +114,23 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private ConfigMap clusterConfigMap;
 
 	private Boolean provisionKibosh = false;
+	private Boolean provisionDefaultOperator = false;
 
 	@Bean(name = "addonDeploymentRunnable")
 	@Scope(value = "prototype")
 	public PKSServiceInstanceAddonDeploymentsRunnable getPKSServiceInstanceAddonDeploymentsRunnable(BrokerAction action,
-			String serviceInstanceId, String planName, RoutingLayer kiboshRoutingLayer, JSONObject params) {
+			String serviceInstanceId, String planName, RoutingLayer kiboshRoutingLayer, JSONObject custom_params) {
 		PKSServiceInstanceAddonDeploymentsRunnable runner = new PKSServiceInstanceAddonDeploymentsRunnable();
-		params.keySet().iterator().forEachRemaining(key -> {
+		custom_params.keySet().iterator().forEachRemaining(key -> {
 			switch (key) {
 			case "provision_kibosh": {
-				runner.setProvisionKibosh(params.getBoolean(key));
+				runner.setProvisionKibosh(custom_params.getBoolean(key));
+				LOG.info("provision kibosh set to " + runner.provisionKibosh.toString());
+				break;
+			}
+			case "provision_default_operator": {
+				runner.setProvisionDefaultOperator(custom_params.getBoolean(key));
+				LOG.info("provision default operator set to " + runner.provisionDefaultOperator.toString());
 				break;
 			}
 			default:
@@ -667,15 +675,28 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		}
 		operationStateMessage = "RouteRegistration for Master Complete";
 
-		LOG.info("Applying Default Operators to : " + serviceInstanceId);
-		LOG.trace("Operators: " + sbConfig.getDefaultOperators());
-		createTypedResources(sbConfig.getDefaultOperators(), jsonClusterContext);
+		if (this.provisionDefaultOperator) {
+			LOG.info("Applying Default Operators to : " + serviceInstanceId);
+			LOG.trace("Operators: " + sbConfig.getDefaultOperators());
+			this.operationStateMessage = "Applying Default Operators";
+			ArrayList<Object> defaultOperators = createTypedResources(sbConfig.getDefaultOperators(),
+					jsonClusterContext);
+			try {
+				applyTypedResource(defaultOperators, "CREATE");
+			} catch (Exception e) {
+				client.close();
+				this.state = OperationState.FAILED;
+				this.operationStateMessage = "Failed applying default Operators";
+				e.printStackTrace();
+			}
+		}
 
 		try {
 			applyKiboshDeployment(jsonClusterContext);
-
 		} catch (FileNotFoundException e) {
 			client.close();
+			this.state = OperationState.FAILED;
+			this.operationStateMessage = "Failed applying Kibosh";
 			e.printStackTrace();
 		}
 
@@ -688,163 +709,164 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private void applyTypedResource(ArrayList<Object> typedResourceList, String applyAction) {
 		typedResourceList.forEach(resource -> {
 			String skipping = "";
-			switch (resource.getClass().getName()) {
-			case "io.fabric8.kubernetes.api.model.Service":
-				Service service = (Service) resource;
-				try {
-					if (applyAction.equals("DELETE"))
-						client.services().delete(service);
-					else
-						service = client.services().createOrReplace(service);
-					LOG.info(applyAction + " Service " + service.getMetadata().getName() + " on PKS Custer "
-							+ serviceInstanceId);
-				} catch (KubernetesClientException e) {
-					state = OperationState.FAILED;
-					LOG.error("Error in " + applyAction + " Service " + service.getMetadata().getName()
-							+ " on PKS Custer " + serviceInstanceId);
-					client.close();
-					e.printStackTrace();
-					return;
-				}
-				break;
-			case "io.fabric8.kubernetes.api.model.Namespace":
-				Namespace namespace = (Namespace) resource;
-				try {
-					if (applyAction.equals("DELETE"))
-						client.namespaces().withName(namespace.getMetadata().getName()).delete();
-					else
-						namespace = client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
-								.get() == null ? client.namespaces().createOrReplace(namespace)
-										: client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
-												.get();
-				} catch (Exception e) {
-					client.namespaces().withName(namespace.getMetadata().getName()).fromServer().get();
-				}
-				break;
-			case "io.fabric8.kubernetes.api.model.apps.Deployment":
-				Deployment deployment = (Deployment) resource;
-				try {
-					if (applyAction.equals("DELETE"))
-						client.apps().deployments().delete(deployment);
-					else
-						client.apps().deployments().createOrReplace(deployment);
-					LOG.info(applyAction + " Deployment " + deployment.getMetadata().getName() + " on PKS Cluster "
-							+ serviceInstanceId);
-				} catch (KubernetesClientException e) {
-					state = OperationState.FAILED;
-					LOG.error("Error in " + applyAction + " Deployment " + deployment.toString() + " on PKS Cluster "
-							+ serviceInstanceId);
-					client.close();
-					e.printStackTrace();
-					return;
-				}
-				break;
-			case "io.fabric8.kubernetes.api.model.storage.StorageClass":
-				StorageClass storageClass = (StorageClass) resource;
-				try {
-					if (client.storage().storageClasses().withName(storageClass.getMetadata().getName()).fromServer()
-							.get() == null)
+			if (resource != null)
+				switch (resource.getClass().getName()) {
+				case "io.fabric8.kubernetes.api.model.Service":
+					Service service = (Service) resource;
+					try {
 						if (applyAction.equals("DELETE"))
-							;
+							client.services().delete(service);
 						else
-							client.storage().storageClasses().createOrReplace(storageClass);
-					else
-						skipping = "Skipping ";
-
-					LOG.info(skipping + applyAction + " of StorageClass for PKS Cluster: " + serviceInstanceId);
-
-				} catch (Exception e) {
-					LOG.error("Error in " + applyAction + " Storage Class" + storageClass.toString()
-							+ " on PKS Cluster " + serviceInstanceId);
-					LOG.error(e);
-					state = OperationState.FAILED;
-					client.close();
-					return;
-				}
-				break;
-			case "io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding":
-				KubernetesClusterRoleBinding clusterRoleBinding = (KubernetesClusterRoleBinding) resource;
-				try {
-					if (applyAction.equals("DELETE"))
-						client.rbac().kubernetesClusterRoleBindings().delete(clusterRoleBinding);
-					else
-						client.rbac().kubernetesClusterRoleBindings().createOrReplace(clusterRoleBinding);
-					LOG.info(applyAction + " ClusterRoleBinding " + clusterRoleBinding.getMetadata().getName()
-							+ " on PKS Custer " + serviceInstanceId);
-					LOG.debug(clusterRoleBinding.toString());
-				} catch (KubernetesClientException e) {
-					LOG.error("Error in " + applyAction + " Kibosh Helm Tiller ClusterRoleBinding on PKS Custer "
-							+ serviceInstanceId);
-					state = OperationState.FAILED;
-					e.printStackTrace();
-					client.close();
-					return;
-				}
-				break;
-			case "io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRole":
-				KubernetesClusterRole clusterRole = (KubernetesClusterRole) resource;
-				clusterRole = client.rbac().kubernetesClusterRoles().createOrReplace(clusterRole);
-				break;
-			case "io.fabric8.kubernetes.api.model.ConfigMap":
-				ConfigMap configMap = (ConfigMap) resource;
-				try {
-					if (applyAction.equals("DELETE"))
-						client.configMaps().delete(clusterConfigMap);
-					else
-						configMap = client.configMaps().createOrReplace(clusterConfigMap);
-					LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
-				} catch (KubernetesClientException e) {
-					state = OperationState.FAILED;
-					LOG.error("Error " + applyAction + "  Config Map" + configMap.toString() + " on PKS Cluster "
-							+ serviceInstanceId);
-					client.close();
-					LOG.error(e);
-					return;
-				}
-				break;
-			case "io.fabric8.kubernetes.api.model.Secret":
-				Secret secret = (Secret) resource;
-				try {
-					if (applyAction.equals("DELETE"))
-						client.secrets().delete(secret);
-					else
-						secret = client.secrets().createOrReplace(secret);
-					LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
-				} catch (Exception e) {
-					LOG.error("Error " + applyAction + "  Route Registrar Secret " + secret.toString()
-							+ " on PKS Cluster " + serviceInstanceId);
-					LOG.error(e);
-					state = OperationState.FAILED;
-					client.close();
-					return;
-				}
-				break;
-			case "io.fabric8.kubernetes.api.model.ServiceAccount":
-				ServiceAccount serviceAccount = (ServiceAccount) resource;
-				try {
-					if (client.serviceAccounts().withName(serviceAccount.getMetadata().getName()).fromServer()
-							.get() == null) {
-						if (applyAction.equals("DELETE"))
-							client.serviceAccounts().delete(serviceAccount);
-						else
-							serviceAccount = client.serviceAccounts().createOrReplace(serviceAccount);
-
-					} else {
-						skipping = "Skipping ";
+							service = client.services().createOrReplace(service);
+						LOG.info(applyAction + " Service " + service.getMetadata().getName() + " on PKS Custer "
+								+ serviceInstanceId);
+					} catch (KubernetesClientException e) {
+						state = OperationState.FAILED;
+						LOG.error("Error in " + applyAction + " Service " + service.getMetadata().getName()
+								+ " on PKS Custer " + serviceInstanceId);
+						client.close();
+						e.printStackTrace();
+						return;
 					}
-					LOG.info(skipping + action.toString() + " Kibosh Helm Service Account for PKS Cluster "
-							+ serviceInstanceId);
-				} catch (KubernetesClientException e) {
-					state = OperationState.FAILED;
-					LOG.error("Error " + applyAction + "  Service Account " + serviceAccount.toString()
-							+ " on PKS Cluster " + serviceInstanceId);
-					e.printStackTrace();
-					client.close();
+					break;
+				case "io.fabric8.kubernetes.api.model.Namespace":
+					Namespace namespace = (Namespace) resource;
+					try {
+						if (applyAction.equals("DELETE"))
+							client.namespaces().withName(namespace.getMetadata().getName()).delete();
+						else
+							namespace = client.namespaces().withName(namespace.getMetadata().getName()).fromServer()
+									.get() == null ? client.namespaces().createOrReplace(namespace)
+											: client.namespaces().withName(namespace.getMetadata().getName())
+													.fromServer().get();
+					} catch (Exception e) {
+						client.namespaces().withName(namespace.getMetadata().getName()).fromServer().get();
+					}
+					break;
+				case "io.fabric8.kubernetes.api.model.apps.Deployment":
+					Deployment deployment = (Deployment) resource;
+					try {
+						if (applyAction.equals("DELETE"))
+							client.apps().deployments().delete(deployment);
+						else
+							client.apps().deployments().createOrReplace(deployment);
+						LOG.info(applyAction + " Deployment " + deployment.getMetadata().getName() + " on PKS Cluster "
+								+ serviceInstanceId);
+					} catch (KubernetesClientException e) {
+						state = OperationState.FAILED;
+						LOG.error("Error in " + applyAction + " Deployment " + deployment.toString()
+								+ " on PKS Cluster " + serviceInstanceId);
+						client.close();
+						e.printStackTrace();
+						return;
+					}
+					break;
+				case "io.fabric8.kubernetes.api.model.storage.StorageClass":
+					StorageClass storageClass = (StorageClass) resource;
+					try {
+						if (client.storage().storageClasses().withName(storageClass.getMetadata().getName())
+								.fromServer().get() == null)
+							if (applyAction.equals("DELETE"))
+								;
+							else
+								client.storage().storageClasses().createOrReplace(storageClass);
+						else
+							skipping = "Skipping ";
+
+						LOG.info(skipping + applyAction + " of StorageClass for PKS Cluster: " + serviceInstanceId);
+
+					} catch (Exception e) {
+						LOG.error("Error in " + applyAction + " Storage Class" + storageClass.toString()
+								+ " on PKS Cluster " + serviceInstanceId);
+						LOG.error(e);
+						state = OperationState.FAILED;
+						client.close();
+						return;
+					}
+					break;
+				case "io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRoleBinding":
+					KubernetesClusterRoleBinding clusterRoleBinding = (KubernetesClusterRoleBinding) resource;
+					try {
+						if (applyAction.equals("DELETE"))
+							client.rbac().kubernetesClusterRoleBindings().delete(clusterRoleBinding);
+						else
+							client.rbac().kubernetesClusterRoleBindings().createOrReplace(clusterRoleBinding);
+						LOG.info(applyAction + " ClusterRoleBinding " + clusterRoleBinding.getMetadata().getName()
+								+ " on PKS Custer " + serviceInstanceId);
+						LOG.debug(clusterRoleBinding.toString());
+					} catch (KubernetesClientException e) {
+						LOG.error("Error in " + applyAction + " Kibosh Helm Tiller ClusterRoleBinding on PKS Custer "
+								+ serviceInstanceId);
+						state = OperationState.FAILED;
+						e.printStackTrace();
+						client.close();
+						return;
+					}
+					break;
+				case "io.fabric8.kubernetes.api.model.rbac.KubernetesClusterRole":
+					KubernetesClusterRole clusterRole = (KubernetesClusterRole) resource;
+					clusterRole = client.rbac().kubernetesClusterRoles().createOrReplace(clusterRole);
+					break;
+				case "io.fabric8.kubernetes.api.model.ConfigMap":
+					ConfigMap configMap = (ConfigMap) resource;
+					try {
+						if (applyAction.equals("DELETE"))
+							client.configMaps().delete(clusterConfigMap);
+						else
+							configMap = client.configMaps().createOrReplace(clusterConfigMap);
+						LOG.info(action.toString() + " Cluster ConfigMap for PKS Cluster " + serviceInstanceId);
+					} catch (KubernetesClientException e) {
+						state = OperationState.FAILED;
+						LOG.error("Error " + applyAction + "  Config Map" + configMap.toString() + " on PKS Cluster "
+								+ serviceInstanceId);
+						client.close();
+						LOG.error(e);
+						return;
+					}
+					break;
+				case "io.fabric8.kubernetes.api.model.Secret":
+					Secret secret = (Secret) resource;
+					try {
+						if (applyAction.equals("DELETE"))
+							client.secrets().delete(secret);
+						else
+							secret = client.secrets().createOrReplace(secret);
+						LOG.info("Create RouteRegSecret for PKS Cluster: " + serviceInstanceId);
+					} catch (Exception e) {
+						LOG.error("Error " + applyAction + "  Route Registrar Secret " + secret.toString()
+								+ " on PKS Cluster " + serviceInstanceId);
+						LOG.error(e);
+						state = OperationState.FAILED;
+						client.close();
+						return;
+					}
+					break;
+				case "io.fabric8.kubernetes.api.model.ServiceAccount":
+					ServiceAccount serviceAccount = (ServiceAccount) resource;
+					try {
+						if (client.serviceAccounts().withName(serviceAccount.getMetadata().getName()).fromServer()
+								.get() == null) {
+							if (applyAction.equals("DELETE"))
+								client.serviceAccounts().delete(serviceAccount);
+							else
+								serviceAccount = client.serviceAccounts().createOrReplace(serviceAccount);
+
+						} else {
+							skipping = "Skipping ";
+						}
+						LOG.info(skipping + action.toString() + " Kibosh Helm Service Account for PKS Cluster "
+								+ serviceInstanceId);
+					} catch (KubernetesClientException e) {
+						state = OperationState.FAILED;
+						LOG.error("Error " + applyAction + "  Service Account " + serviceAccount.toString()
+								+ " on PKS Cluster " + serviceInstanceId);
+						e.printStackTrace();
+						client.close();
+					}
+					break;
+				default:
+					break;
 				}
-				break;
-			default:
-				break;
-			}
 		});
 
 	}
@@ -859,12 +881,12 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				try {
 					resourceInputStream = new URL(resourceReference.toString()).openStream();
 					source = "remote File: " + resourceReference.toString();
+
 				} catch (MalformedURLException e1) {
 					source = "Classpath File: " + resourceReference.toString();
 					resourceInputStream = PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
 							.getResourceAsStream(resourceReference.toString());
 				} catch (IOException e1) {
-					// TODO Auto-generated catch block
 					e1.printStackTrace();
 				}
 				break;
@@ -875,30 +897,34 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			default:
 				break;
 			}
-			LOG.trace(resourceInputStream.toString());
+			LOG.trace(source);
 			final String sourceLocation = source;
 			Yaml yamlHandler = new Yaml();
-			yamlHandler.loadAll(resourceInputStream).forEach(resourceObject -> {
-				try {
-					typedResources
-							.add(loadResource(castObjectToHashMap(resourceObject), jsonClusterContext, sourceLocation));
-				} catch (NoSuchMethodException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (SecurityException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (IllegalAccessException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (IllegalArgumentException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (InvocationTargetException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+			Iterable<Object> resourceIterable = yamlHandler.loadAll(resourceInputStream);
+			while (resourceIterable.iterator().hasNext()) {
+				Object resourceObject = resourceIterable.iterator().next();
+				if (resourceObject != null) {
+					try {
+						typedResources.add(
+								loadResource(castObjectToHashMap(resourceObject), jsonClusterContext, sourceLocation));
+					} catch (NoSuchMethodException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (SecurityException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IllegalAccessException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IllegalArgumentException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (InvocationTargetException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
 				}
-			});
+			}
 		});
 		return typedResources;
 	}
@@ -937,6 +963,16 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		}
 		changeClient(jsonClusterContext, currentNamespace);
 		switch (resourceJSON.getString("kind")) {
+		case "Role":
+			KubernetesRole kubeRole = client.rbac().kubernetesRoles().load(resourceIOStream).get();
+
+			if (kubeRole instanceof KubernetesRole)
+				return kubeRole;
+
+			LOG.error("Loaded resource is not KubernetesRole! PKS Cluster: " + serviceInstanceId + " Resource: "
+					+ resourceJSON.toString());
+
+			break;
 		case "ClusterRole":
 			KubernetesClusterRole kubeClusterRole = client.rbac().kubernetesClusterRoles().load(resourceIOStream).get();
 
@@ -1014,8 +1050,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			break;
 
 		default:
-			LOG.error("PKS Cluster: " + serviceInstanceId + " Loading of  Resource with type: "
-					+ resourceJSON.get("type") + " not yet supported " + resourceJSON.toString());
+			LOG.error("PKS Cluster: " + serviceInstanceId + " Loading of  Resource not yet supported "
+					+ resourceJSON.toString());
 			return null;
 		}
 		LOG.info(action + " " + resourceJSON.get("kind") + " from " + sourceLocation + " " + resourceJSON.toString()
@@ -1046,12 +1082,16 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		this.clusterConfigMap = clusterConfigMap;
 	}
 
-	private void setUseExternalRoute(boolean useExternalRoute) {
+	private void setUseExternalRoute(Boolean useExternalRoute) {
 		this.useExternalRoute = useExternalRoute;
 	}
 
 	public void setProvisionKibosh(Boolean provisionKibosh) {
 		this.provisionKibosh = provisionKibosh;
+	}
+
+	private void setProvisionDefaultOperator(Boolean provisionDefaultOperator) {
+		this.provisionDefaultOperator = provisionDefaultOperator;
 
 	}
 
