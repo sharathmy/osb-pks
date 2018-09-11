@@ -2,7 +2,7 @@
 
 # SOURCE FUNCTIONS FROM HELPERS AND RUN PREPARE
 source osb-pks/ci/tasks/helper.sh
-source osb-pks/ci/tasls/prepare.sh
+source osb-pks/ci/tasks/prepare.sh
 prepare
 
 set -e
