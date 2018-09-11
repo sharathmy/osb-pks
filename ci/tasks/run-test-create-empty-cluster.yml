@@ -22,5 +22,5 @@ params:
   HOSTS:
 
 run:
-  path: sb_source/ci/tasks/run-test-create-empty-cluster.sh
+  path: osb-pks/ci/tasks/run-test-create-empty-cluster.sh
 
