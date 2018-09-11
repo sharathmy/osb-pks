@@ -1,6 +1,6 @@
 #!/bin/bash
 import_self_signed_certs(){
-  set -x
+  set -x 
   i=0
   for CERT in "$@"; do
 
@@ -11,6 +11,7 @@ import_self_signed_certs(){
       -alias "cert_$i" -noprompt
   (( i += 1 ))
   done
+  set +x
 }
 get_last_op(){
   while $cont; do
@@ -39,6 +40,7 @@ get_last_op(){
   done
 }
 fake_dns(){
+  set -x
   i=0
   while true; do
     if  [ "$(echo $HOSTS | jq ".[$i]")" != null ]; then
@@ -48,6 +50,7 @@ fake_dns(){
       break
     fi
   done
+  set +x
 }
 wait_for_osb(){
   cont=true
