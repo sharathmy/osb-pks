@@ -1,6 +1,6 @@
 #!/bin/bash
 prepare(){
-  if [ ! -z $HOSTS ]; then
+  if [ -n "$HOSTS" ]; then
     fake_dns
   fi
   if $SKIP_TLS; then
