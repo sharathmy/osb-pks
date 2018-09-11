@@ -1,9 +1,6 @@
 package pksServiceBroker;
 
-import io.fabric8.kubernetes.client.Config;
-import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.DefaultKubernetesClient;
-import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import pksServiceBroker.Config.BrokerAction;
 import pksServiceBroker.Config.RoutingLayer;
@@ -80,9 +77,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	@Autowired
 	pksServiceBroker.Config sbConfig;
 
-	private static String clusterConfigMapFilename = "config/kibosh-external-hostnames-config-map.yaml";
-	private static String routeEmitDeploymentFilename = "config/route-reg-deployment.yaml";
-	private static String routeRegSecretFilename = "config/route-registrar-credentials.yaml";
+	PKSServiceBrokerKubernetesClientUtil clientUtil = new PKSServiceBrokerKubernetesClientUtil();
 
 	private static Logger LOG = LogManager.getLogger(PKSServiceInstanceAddonDeploymentsRunnable.class);
 
@@ -91,7 +86,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private int kubeExternalPort = 0;
 	private int kiboshExternalPort = 0;
 	private int bazaarExternalPort = 0;
-	private KubernetesClient client = new DefaultKubernetesClient();;
 	private BrokerAction action;
 	private RoutingLayer kiboshRoutingLayer = RoutingLayer.HTTP;
 	private JSONObject jsonClusterInfo;
@@ -101,7 +95,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private HttpEntity<String> pksRequestObject;
 	private String serviceInstanceId;
 	private String pksPlanName;
-	private Boolean useExternalRoute = false;
 
 	@Autowired
 	@Qualifier("pks")
@@ -115,6 +108,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	private Boolean provisionKibosh = false;
 	private Boolean provisionDefaultOperator = false;
+
+	private DefaultKubernetesClient client = new DefaultKubernetesClient();
 
 	@Bean(name = "addonDeploymentRunnable")
 	@Scope(value = "prototype")
@@ -159,7 +154,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		headers.add("Authorization", "Bearer " + routeRestTemplate.getAccessToken());
 		headers.add("Accept-Encoding", "gzip");
 		runner.routeHeaders = headers;
-
 		runner.pksRequestObject = new HttpEntity<String>("", runner.pksHeaders);
 		runner.routeRequestObject = new HttpEntity<String>("", runner.routeHeaders);
 		JSONArray master_ips;
@@ -178,7 +172,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 						"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + runner.serviceInstanceId + "/binds",
 						runner.pksRequestObject, String.class));
 				jsonClusterContext.put("master_ip", master_ips.getString(0));
-				changeClient(jsonClusterContext, "kube-system");
+				client = clientUtil.changeClient(jsonClusterContext, "kube-system");
 				LOG.info("ConfigMap with ClusterData found on PKS Cluster " + runner.serviceInstanceId);
 				runner.setClusterConfigMap(
 						client.configMaps().withName("cluster-addon-deployment-data").fromServer().get());
@@ -205,7 +199,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					.put("parameters", new JSONObject().put("kubernetes_master_host", sbConfig.TCP_FQDN)
 							.put("kubernetes_master_port", runner.kubeExternalPort));
 			runner.pksRequestObject = new HttpEntity<String>(payload.toString(), runner.pksHeaders);
-
 			createConfigMap(runner);
 			break;
 		case GET:
@@ -224,7 +217,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 						"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + runner.serviceInstanceId + "/binds",
 						runner.pksRequestObject, String.class));
 				jsonClusterContext.put("master_ip", master_ips.get(0));
-				changeClient(jsonClusterContext, "kube-system");
+				client.close();
+				client = clientUtil.changeClient(jsonClusterContext, "kube-system");
 				LOG.info("ConfigMap with ClusterData found on PKS Cluster " + runner.serviceInstanceId);
 				runner.setClusterConfigMap(
 						client.configMaps().withName("cluster-addon-deployment-data").fromServer().get());
@@ -261,7 +255,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 	private void createConfigMap(PKSServiceInstanceAddonDeploymentsRunnable runner) {
 		LOG.info("Config Map not found on PKS Cluster " + runner.serviceInstanceId + ". Creating...");
 		runner.clusterConfigMap = runner.client.configMaps().load(PKSServiceInstanceAddonDeploymentsRunnable.class
-				.getClassLoader().getResourceAsStream(clusterConfigMapFilename)).get();
+				.getClassLoader().getResourceAsStream(Config.clusterConfigMapFilename)).get();
 
 		if (runner.kiboshRoutingLayer.equals(RoutingLayer.TCP) && provisionKibosh) {
 			runner.kiboshExternalPort = getFreePortForCFTcpRouter();
@@ -340,39 +334,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			runner.clusterConfigMap.getData().remove("bazaar.protocol");
 	}
 
-	private void changeClient(JSONObject jsonClusterContext, String namespace) {
-		client.close();
-		String masterURL = "";
-		if (useExternalRoute) {
-
-			masterURL = jsonClusterContext.getJSONArray("clusters").getJSONObject(0).getJSONObject("cluster")
-					.getString("server");
-
-		} else {
-			masterURL = "https://" + jsonClusterContext.getString("master_ip") + ":"
-					+ pksServiceBroker.Config.KUBERNETES_MASTER_PORT + "/";
-		}
-		LOG.trace("PKS Cluster: " + jsonClusterContext.getJSONArray("clusters").getJSONObject(0).getString("name")
-				+ " settings masterURL to " + masterURL + " Creating Config");
-		Config config;
-		if (namespace != null && namespace != "")
-			config = new ConfigBuilder().withMasterUrl(masterURL)
-					.withOauthToken(jsonClusterContext.getJSONArray("users").getJSONObject(0).getJSONObject("user")
-							.getString("token"))
-					.withCaCertData(jsonClusterContext.getJSONArray("clusters").getJSONObject(0)
-							.getJSONObject("cluster").getString("certificate-authority-data"))
-					.withNamespace(namespace).withTrustCerts(true).build();
-		else
-			config = new ConfigBuilder().withMasterUrl(masterURL)
-					.withOauthToken(jsonClusterContext.getJSONArray("users").getJSONObject(0).getJSONObject("user")
-							.getString("token"))
-					.withCaCertData(jsonClusterContext.getJSONArray("clusters").getJSONObject(0)
-							.getJSONObject("cluster").getString("certificate-authority-data"))
-					.withTrustCerts(true).build();
-
-		client = new DefaultKubernetesClient(config);
-	}
-
 	protected int getFreePortForCFTcpRouter() {
 		int portMin = Integer.parseInt(portRange.split("-")[0]);
 		int portMax = Integer.parseInt(portRange.split("-")[1]);
@@ -391,7 +352,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	protected Boolean checkRouteRegDeploymentMaster(JSONObject kubeConfig, String componentName) {
 		Boolean cont = true;
-		changeClient(kubeConfig, "");
+		client = clientUtil.changeClient(kubeConfig, "");
 		int numberNamespaces = client.namespaces().list().getItems().size();
 		if (numberNamespaces < 1) {
 			state = OperationState.FAILED;
@@ -400,13 +361,13 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 		} else {
 			LOG.trace("PKS Cluster: " + serviceInstanceId + " Found " + numberNamespaces
 					+ " via internal route; Changing to external");
-			setUseExternalRoute(true);
-			changeClient(kubeConfig, "");
+			clientUtil.setUseExternalRoute(true);
+			client = clientUtil.changeClient(kubeConfig, "");
 			try {
 				if (client.namespaces().list().getItems().size() > 0) {
 					cont = false;
 					LOG.info("Master Routes active on PKS Cluster " + serviceInstanceId);
-					setUseExternalRoute(true);
+					clientUtil.setUseExternalRoute(true);
 					operationStateMessage = "Master Routes active";
 				}
 			} catch (KubernetesClientException e) {
@@ -430,7 +391,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		Deployment routeEmitDeployment = client.apps().deployments()
 				.load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
-						.getResourceAsStream(routeEmitDeploymentFilename))
+						.getResourceAsStream(Config.routeEmitDeploymentFilename))
 				.get();
 
 		if (routeEmitDeployment instanceof Deployment) {
@@ -511,7 +472,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		LOG.debug("Will use NodeIPs: " + nodeIPs.toString() + " for route Registration on PKS Cluster: "
 				+ serviceInstanceId);
-		changeClient(jsonClusterContext, "kube-system");
+		client = clientUtil.changeClient(jsonClusterContext, "kube-system");
 
 		typedResourceList = new ArrayList<>();
 		typedResourceList.add(createRouteRegDeploymentResource(jsonClusterContext, provisionKibosh
@@ -524,6 +485,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 								.getNodePort()
 						: 0,
 				nodeIPs.toList(), bazaarExternalPort, pksServiceBroker.Config.BAZAAR_NAME, kiboshRoutingLayer));
+
 		// second run apply dynamic resources
 		if (provisionKibosh)
 			applyTypedResource(typedResourceList, "CREATE");
@@ -607,7 +569,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				.getForObject("https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + serviceInstanceId, String.class));
 
 		ArrayList<Object> typedResourceList = new ArrayList<Object>();
-		changeClient(jsonClusterContext, "kube-system");
+		client = clientUtil.changeClient(jsonClusterContext, "kube-system");
 		// CREATE CONFIGMAP
 		if (clusterConfigMap instanceof ConfigMap) {
 			typedResourceList.add(clusterConfigMap);
@@ -621,7 +583,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 		// CREATE ROUTE REG SECRET
 		Secret routeRegSecret = client.secrets().load(PKSServiceInstanceAddonDeploymentsRunnable.class.getClassLoader()
-				.getResourceAsStream(routeRegSecretFilename)).get();
+				.getResourceAsStream(Config.routeRegSecretFilename)).get();
 		routeRegSecret.getData().put("routing_api_client", new String(Base64.encodeBase64(routeClient.getBytes())));
 		routeRegSecret.getData().put("routing_api_client_secret",
 				new String(Base64.encodeBase64(routeClientSecret.getBytes())));
@@ -629,7 +591,8 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			typedResourceList.add(routeRegSecret);
 
 		} else {
-			LOG.error("RouteRegSecretTemplateFile at : " + routeRegSecretFilename + " did not contain a valid Secret.");
+			LOG.error("RouteRegSecretTemplateFile at : " + Config.routeRegSecretFilename
+					+ " did not contain a valid Secret.");
 			operationStateMessage = "RouteRegSecret is not valid. Contact your Administrator";
 			state = OperationState.FAILED;
 			client.close();
@@ -655,7 +618,12 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
-
+		ConfigMap lastOpConfigMap = client.configMaps().load(PKSServiceInstanceLastOperationInfo.class
+				.getClassLoader().getResourceAsStream(Config.lastOpConfigMapFilename)).get();
+		lastOpConfigMap.getData().put("state", state.toString());
+		lastOpConfigMap.getData().put("action", action.toString());
+		lastOpConfigMap.getData().put("message", operationStateMessage);
+		client.configMaps().createOrReplace(lastOpConfigMap);
 		operationStateMessage = "Cluster created, creating route emitter pod";
 		LOG.info("Deploying Addons on PKS Cluster " + serviceInstanceId);
 		applyTypedResource(typedResourceList, "CREATE");
@@ -961,7 +929,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			// This most probably means that the resource does not use or provide a
 			// Namespace. This can also be caused by a bad config provided in the yaml
 		}
-		changeClient(jsonClusterContext, currentNamespace);
+		client = clientUtil.changeClient(jsonClusterContext, currentNamespace);
 		switch (resourceJSON.getString("kind")) {
 		case "Role":
 			KubernetesRole kubeRole = client.rbac().kubernetesRoles().load(resourceIOStream).get();
@@ -1080,10 +1048,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 	private void setClusterConfigMap(ConfigMap clusterConfigMap) {
 		this.clusterConfigMap = clusterConfigMap;
-	}
-
-	private void setUseExternalRoute(Boolean useExternalRoute) {
-		this.useExternalRoute = useExternalRoute;
 	}
 
 	public void setProvisionKibosh(Boolean provisionKibosh) {
