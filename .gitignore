@@ -1,9 +1,11 @@
-#ECLIPSE/MAVEN
+#ECLIPSE/MAVEN/VI
 .project
 .settings
 .classpath
+*.swp
 
 application-*.yml
+secrets.yml
 
 #LOCAL_DEV
 dev/**
@@ -13,3 +15,4 @@ dev/**
 target/**
 src/main/resources/application-dev.yml
 settings.xml
+
