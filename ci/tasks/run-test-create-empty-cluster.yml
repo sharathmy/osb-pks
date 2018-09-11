@@ -12,6 +12,7 @@ inputs:
 - name: jar
 
 outputs:
+- name: test-cluster-data
 
 params:
   SPRING_APPLICATION_JSON:
@@ -20,5 +21,5 @@ params:
   HOSTS:
 
 run:
-  path: osb-pks/ci/tasks/run-test-create-empty-cluster.sh
+  path: sb_source/ci/tasks/run-test-create-empty-cluster.sh
 
