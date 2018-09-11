@@ -1,0 +1,23 @@
+jobs:
+- name: release
+  plan:
+  - aggregate:
+    - get: sb_source
+  - task: maven-build
+    file: sb_source/ci/tasks/maven-build.sh
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      
+
+
+
+
+
+resources:
+- name: sb_source
+  type: git
+  source:
+    branch: master
+    uri: git@github.com:sharathmy/osb-pks.git
+    private_key: ((git_key))
+
