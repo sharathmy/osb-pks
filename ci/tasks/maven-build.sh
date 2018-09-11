@@ -1,5 +1,5 @@
 #!/bin/bash
-cd sb_source
+cd osb-pks
 
 mvn install 
 
