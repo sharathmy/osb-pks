@@ -58,6 +58,8 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 
 	private static HashMap<String, PKSServiceInstanceAddonDeploymentsRunnable> addonDeploymentRunnables = new HashMap<>(
 			0);
+	private static HashMap<String, PKSServiceInstanceLastOperationInfo> serviceInstanceOperationInfoMap = new HashMap<>(
+			0);
 
 	public CreateServiceInstanceResponse createServiceInstance(CreateServiceInstanceRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
@@ -150,19 +152,14 @@ public class PKSServiceInstanceService implements ServiceInstanceService {
 
 	public GetLastServiceOperationResponse getLastOperation(GetLastServiceOperationRequest request) {
 		String serviceInstanceId = request.getServiceInstanceId();
-		OperationState state = addonDeploymentRunnables.get(serviceInstanceId).getState();
-		String operationStateMessage = addonDeploymentRunnables.get(serviceInstanceId).getOperationStateMessage();
-		BrokerAction lastPKSAction = addonDeploymentRunnables.get(serviceInstanceId).getAction();
-//		switch (lastPKSAction) {
-//		case CREATE:
-//			break;
-//		case UPDATE:
-//			break;
-//		case GET:
-//			break;
-//		case DELETE:
-//			break;
-//		}
+		if (!serviceInstanceOperationInfoMap.containsKey(serviceInstanceId))
+			serviceInstanceOperationInfoMap.put(serviceInstanceId,
+					new PKSServiceInstanceLastOperationInfo(request.getServiceInstanceId(), pksRestTemplate, sbConfig));
+
+		PKSServiceInstanceLastOperationInfo lastOperationInfo = serviceInstanceOperationInfoMap.get(serviceInstanceId);
+		OperationState state = lastOperationInfo.updateStatus().getOperationState();
+		String operationStateMessage = lastOperationInfo.getOperationStateMessage();
+		BrokerAction lastPKSAction = lastOperationInfo.getOperationAction();
 		if (state.equals(OperationState.SUCCEEDED) || state.equals(OperationState.FAILED)) {
 			LOG.info("Completed " + lastPKSAction + " of PKS Cluster: " + serviceInstanceId + " with " + state);
 			addonDeploymentRunnables.remove(serviceInstanceId);
