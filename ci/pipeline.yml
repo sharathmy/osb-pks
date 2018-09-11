@@ -28,6 +28,7 @@ jobs:
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
       SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
       HOSTS: 
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
@@ -36,6 +37,7 @@ jobs:
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
       SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
       HOSTS: 
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
