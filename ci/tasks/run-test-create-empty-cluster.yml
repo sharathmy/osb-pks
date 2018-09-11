@@ -8,8 +8,9 @@ image_resource:
     tag: "latest"
 
 inputs:
+- name: version
 - name: osb-pks
-- name: jar
+- name: osb-pks-release
 
 outputs:
 - name: test-cluster-data

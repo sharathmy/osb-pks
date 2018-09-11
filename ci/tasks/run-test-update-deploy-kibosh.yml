@@ -8,11 +8,13 @@ image_resource:
     tag: "latest"
 
 inputs:
+- name: version
 - name: osb-pks
-- name: jar
+- name: osb-pks-release
 - name: test-cluster-data
 
 outputs:
+- name: test-cluster-data
 
 params:
   SPRING_APPLICATION_JSON:

@@ -17,6 +17,9 @@ jobs:
   plan:
   - aggregate:
     - get: osb-pks
+    - get: version
+    - get: osb-pks-release
+
   - task: run-test-create-empty-cluster
     file: osb-psk/ci/tasks/run-test-create-empty-cluster.yml
     params:
