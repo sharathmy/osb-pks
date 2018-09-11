@@ -2,15 +2,21 @@ jobs:
 - name: create-latest-build
   plan:
   - aggregate:
+    - get: version
+      params: {bump: minor}
     - get: osb-pks
   - task: maven-build
     file: osb-pks/ci/tasks/maven-build.yml
-    - put: 
+  - put: osb-pks-release
+    params:
+      name: version/version
+      tag: version/version
+      globs:
+      - jar/osb_pks.jar
 - name: run-tests
   plan:
   - aggregate:
     - get: osb-pks
-
   - task: run-test-create-empty-cluster
     file: osb-psk/ci/tasks/run-test-create-empty-cluster.yml
     params:
@@ -18,9 +24,9 @@ jobs:
       SKIP_TLS: true
       HOSTS: |
         10.213.10.52 tcp.pcf21.starkandwayne.com
-        10.213.10.3 api.pks.pcf21.starkandwayne.coma
+        10.213.10.3 api.pks.pcf21.starkandwayne.com
   - task: run-test-update-deploy-kibosh
-    file: osb-psk/ci/tasks/run-test-update-deploy-kibosh.yml
+    file: osb-psk/ci/tasks/run-test-update-deploy-kibosh.yml
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
       SKIP_TLS: true
@@ -28,11 +34,6 @@ jobs:
         10.213.10.52 tcp.pcf21.starkandwayne.com
         10.213.10.3 api.pks.pcf21.starkandwayne.com
       
-
-
-
-
-
 resources:
 - name: osb-pks
   type: git
@@ -40,4 +41,18 @@ resources:
     branch: master
     uri: git@github.com:starkandwayne/osb-pks.git
     private_key: ((git_key))
-
+- name: version
+  type: semver
+  source:
+    driver: git
+    uri: git@github.com:starkandwayne/osb-pks.git
+    branch: master
+    file: version
+    private_key: ((git_key))
+    initial_version: 0.0.1
+- name: osb-pks-release
+  type: github-release
+  source:
+    owner: starkandwayne
+    repository: osb-pks
+    access_token: ((osb-pks-repo-access-token))

@@ -9,6 +9,7 @@ image_resource:
 
 inputs:
 - name: osb-pks
+- name: version
 
 outputs:
 - name: jar

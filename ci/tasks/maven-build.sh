@@ -3,4 +3,4 @@ cd sb_source
 
 mvn install 
 
-cp target/*.jar ../jar/pks_sb.jar
+cp target/*.jar ../jar/osb_pks.jar
