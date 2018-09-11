@@ -11,6 +11,7 @@ PKS_FQDN=$(echo $SPRING_APPLICATION_JSON | jq .pks.fqdn -r)
 PKS_API_CERT=$(echo | openssl s_client -connect $PKS_FQDN:9021 -showcerts | openssl x509)
 PKS_UAA_CERT=$(echo | openssl s_client -connect $PKS_FQDN:8443 -showcerts | openssl x509)
 
+import_self_signed_certs "$PKS_API_CERT" "$PKS_UAA_CERT"
 
 nohup java -jar osb-pks-release/osb_pks.jar &
 wait_for_osb
