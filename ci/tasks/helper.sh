@@ -8,7 +8,7 @@ import_self_signed_certs(){
       -importcert \
       -storepass changeit  \
       -file <(echo -e "$CERT") \
-      -alias "cert_$1" -noprompt
+      -alias "cert_$i" -noprompt
   (( i += 1 ))
   done
 }
