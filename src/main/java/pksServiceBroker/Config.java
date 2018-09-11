@@ -12,6 +12,11 @@ import org.springframework.lang.Nullable;
 @Configuration
 @ConfigurationProperties(prefix = "addons")
 public class Config {
+	static String clusterConfigMapFilename = "config/kibosh-external-hostnames-config-map.yaml";
+	static String routeEmitDeploymentFilename = "config/route-reg-deployment.yaml";
+	static String routeRegSecretFilename = "config/route-registrar-credentials.yaml";
+	static String lastOpConfigMapFilename = "config/last-op-config-map.yaml";
+	
 	static public enum BrokerAction {
 		GET, CREATE, UPDATE, DELETE;
 		private static final Map<String, BrokerAction> mappings = new HashMap<>(8);
