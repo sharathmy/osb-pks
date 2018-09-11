@@ -5,7 +5,7 @@ source osb-pks/ci/tasks/helper.sh
 source osb-pks/ci/tasks/prepare.sh
 prepare
 
-nohup java -jar osb-pks-release/osb_pks.jar&
+nohup java -jar osb-pks-pre-release/osb_pks.jar&
 wait_for_osb
 
 # TEST CREATE CLUSTER

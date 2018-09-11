@@ -13,7 +13,7 @@ PKS_UAA_CERT=$(echo | openssl s_client -connect $PKS_FQDN:8443 -showcerts | open
 
 import_self_signed_certs "$PKS_API_CERT" "$PKS_UAA_CERT"
 
-nohup java -jar osb-pks-release/osb_pks.jar &
+nohup java -jar osb-pks-pre-release/osb_pks.jar &
 wait_for_osb
 
 SI_ID=$(cat /proc/sys/kernel/random/uuid)  # SERVICE INSTANCE ID

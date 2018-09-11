@@ -7,7 +7,7 @@ jobs:
     - get: osb-pks
   - task: maven-build
     file: osb-pks/ci/tasks/maven-build.yml
-  - put: osb-pks-release
+  - put: osb-pks-pre-release
     params:
       name: version/version
       tag: version/version
@@ -20,10 +20,9 @@ jobs:
     - get: version
       passed: 
       - create-latest-build
-    - get: osb-pks-release
+    - get: osb-pks-pre-release
       passed: 
       - create-latest-build
-
   - task: run-test-create-empty-cluster
     file: osb-pks/ci/tasks/run-test-create-empty-cluster.yml
     params:
@@ -40,6 +39,13 @@ jobs:
       HOSTS: 
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
+  - put: osb-pks-release
+    params:
+      name: version/version
+      tag: version/version
+      globs:
+      - osb-pks-pre-release/osb_pks.jar
+    
 resources:
 - name: osb-pks
   type: git
@@ -61,4 +67,11 @@ resources:
   source:
     owner: starkandwayne
     repository: osb-pks
+    access_token: ((osb-pks-repo-access-token))
+- name: osb-pks-pre-release
+  type: github-release
+  source:
+    owner: starkandwayne
+    repository: osb-pks
+    pre_release: true
     access_token: ((osb-pks-repo-access-token))

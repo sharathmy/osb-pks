@@ -10,7 +10,7 @@ image_resource:
 inputs:
 - name: version
 - name: osb-pks
-- name: osb-pks-release
+- name: osb-pks-pre-release
 - name: test-cluster-data
 
 outputs:
