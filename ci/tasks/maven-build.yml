@@ -15,4 +15,4 @@ outputs:
 - name: jar
 
 run:
-  path: osb-pks/ci/tasks/maven-build.sh
+  path: osb-pks-ci/ci/tasks/maven-build.sh

@@ -6,17 +6,18 @@ jobs:
       params: {bump: minor}
     - get: osb-pks
   - task: maven-build
-    file: osb-pks/ci/tasks/maven-build.yml
+    file: osb-pks-ci/ci/tasks/maven-build.yml
   - put: osb-pks-pre-release
     params:
       name: version/version
       tag: version/version
+      body: version/body
       globs:
       - jar/osb_pks.jar
 - name: run-tests
   plan:
   - aggregate:
-    - get: osb-pks
+    - get: osb-pks-ci
     - get: version
       passed: 
       - create-latest-build
@@ -24,7 +25,7 @@ jobs:
       passed: 
       - create-latest-build
   - task: run-test-create-empty-cluster
-    file: osb-pks/ci/tasks/run-test-create-empty-cluster.yml
+    file: osb-pks-ci/ci/tasks/run-test-create-empty-cluster.yml
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
       SKIP_TLS: true
@@ -33,7 +34,7 @@ jobs:
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
   - task: run-test-update-deploy-kibosh
-    file: osb-pks/ci/tasks/run-test-update-deploy-kibosh.yml
+    file: osb-pks-ci/ci/tasks/run-test-update-deploy-kibosh.yml
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
       SKIP_TLS: true
@@ -55,6 +56,16 @@ resources:
     branch: master
     uri: git@github.com:starkandwayne/osb-pks.git
     private_key: ((git_key))
+    paths:
+    - src/**/*
+- name: osb-pks-ci
+  type: git
+  source:
+    branch: master
+    uri: git@github.com:starkandwayne/osb-pks.git
+    private_key: ((git_key))
+    paths:
+    - ci/**/*
 - name: version
   type: semver
   source:
@@ -69,6 +80,7 @@ resources:
   source:
     owner: starkandwayne
     repository: osb-pks
+    private_key: ((git_key))
     access_token: ((osb-pks-repo-access-token))
 - name: osb-pks-pre-release
   type: github-release
@@ -76,4 +88,5 @@ resources:
     owner: starkandwayne
     repository: osb-pks
     pre_release: true
+    private_key: ((git_key))
     access_token: ((osb-pks-repo-access-token))

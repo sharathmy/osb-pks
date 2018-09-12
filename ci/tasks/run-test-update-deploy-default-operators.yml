@@ -8,10 +8,8 @@ image_resource:
     tag: "latest"
 
 inputs:
-- name: version
 - name: osb-pks-ci
-- name: osb-pks-pre-release
-- name: test-cluster-data
+- name: jar
 
 outputs:
 
@@ -22,5 +20,5 @@ params:
   HOSTS:
 
 run:
-  path: osb-pks-ci/ci/tasks/run-test-update-deploy-kibosh.sh
+  path: osb-pks-ci/ci/tasks/run-test-update-deploy-default-operators.sh
 
