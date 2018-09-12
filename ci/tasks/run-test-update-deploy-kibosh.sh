@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # SOURCE FUNCTIONS FROM HELPERS
-source osb-pks/ci/tasks/helper.sh
-source osb-pks/ci/tasks/prepare.sh
+source osb-pks-ci/ci/tasks/helper.sh
+source osb-pks-ci/ci/tasks/prepare.sh
 prepare
 
 source test-cluster-data/SI_ID.sh

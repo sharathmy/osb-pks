@@ -29,7 +29,7 @@ jobs:
       passed: 
       - create-latest-build
   - task: run-test-create-empty-cluster
-    file: osb-pks/ci/tasks/run-test-create-empty-cluster.yml
+    file: osb-pks-ci/ci/tasks/run-test-create-empty-cluster.yml
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
       SKIP_TLS: true
@@ -38,7 +38,7 @@ jobs:
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
   - task: run-test-update-deploy-kibosh
-    file: osb-pks/ci/tasks/run-test-update-deploy-kibosh.yml
+    file: osb-pks-ci/ci/tasks/run-test-update-deploy-kibosh.yml
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
       SKIP_TLS: true
