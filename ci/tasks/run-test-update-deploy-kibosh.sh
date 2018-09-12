@@ -5,6 +5,8 @@ source osb-pks/ci/tasks/helper.sh
 source osb-pks/ci/tasks/prepare.sh
 prepare
 
+source test-cluster-data/SI_ID.sh
+
 nohup java -jar osb-pks-pre-release/osb_pks.jar&
 wait_for_osb
 
@@ -12,6 +14,8 @@ wait_for_osb
 curl -X PUT  $SB/service_instances/$SI_ID \
   -H "Content-Type: application/json" \
   -d '{"service_id":"'$PKS_ID'", "plan_id": "'$PKS_PLAN_ID'", "parameters": {"provision_kibosh": true, "provision_default_operator": false}}'
+
+sleep 5
 
 get_last_op
 
