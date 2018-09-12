@@ -182,7 +182,6 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 					removeKiboshDataFromMap(runner);
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
 				if (runner.kiboshRoutingLayer.equals(RoutingLayer.TCP)) {
 					runner.kiboshExternalPort = getFreePortForCFTcpRouter();
 					runner.bazaarExternalPort = getFreePortForCFTcpRouter();
@@ -675,12 +674,20 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			String operationStateMessage) {
 		ConfigMap lastOpConfigMap = client.configMaps().load(PKSServiceInstanceLastOperationInfo.class.getClassLoader()
 				.getResourceAsStream(Config.lastOpConfigMapFilename)).get();
-		lastOpConfigMap = client.configMaps().inNamespace(lastOpConfigMap.getMetadata().getNamespace())
-				.withName(lastOpConfigMap.getMetadata().getName()).edit()
-					.addToData("state", state.name())
-					.addToData("action", action.name())
-					.addToData("message", operationStateMessage)
-				.done();
+		
+		try {
+			lastOpConfigMap = client.configMaps().inNamespace(lastOpConfigMap.getMetadata().getNamespace())
+					.withName(lastOpConfigMap.getMetadata().getName()).edit()
+						.addToData("state", state.name())
+						.addToData("action", action.name())
+						.addToData("message", operationStateMessage)
+					.done();
+		} catch (KubernetesClientException e) {
+			lastOpConfigMap.getData().put("state", state.name());
+			lastOpConfigMap.getData().put("action", action.name());
+			lastOpConfigMap.getData().put("message", operationStateMessage);
+			lastOpConfigMap = client.configMaps().createOrReplace(lastOpConfigMap);
+		}
 
 		LOG.info("Updating Last Operation Config Map on PKS Cluster " + serviceInstanceId);
 		return lastOpConfigMap;
