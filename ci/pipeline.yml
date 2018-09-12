@@ -7,12 +7,15 @@ jobs:
     - get: osb-pks
     - get: osb-pks-ci
   - task: maven-build
-    file: osb-pks/ci/tasks/maven-build.yml
+    file: osb-pks-ci/ci/tasks/maven-build.yml
+  - put: version
+    params: 
+      bump: patch
   - put: osb-pks-pre-release
     params:
       name: version/version
       tag: version/version
-      body: version/body
+      body: jar/body
       globs:
       - jar/osb_pks.jar
 - name: run-tests

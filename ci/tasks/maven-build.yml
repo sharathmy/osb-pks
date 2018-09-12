@@ -9,6 +9,7 @@ image_resource:
 
 inputs:
 - name: osb-pks
+- name: osb-pks-ci
 - name: version
 
 outputs:
