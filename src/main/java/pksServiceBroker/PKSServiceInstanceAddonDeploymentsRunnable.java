@@ -612,13 +612,12 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 
 			}
 		} catch (FileNotFoundException e1) {
-			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		} catch (JSONException e1) {
-			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
-		ConfigMap lastOpConfigMap = updateLastOperationConfigMap(state, action, operationStateMessage);
+
+		updateLastOperationConfigMap(state, action, operationStateMessage);
 		applyTypedResource(typedResourceList, "CREATE");
 
 		// CHECK IF PKS CLUSTER ALREADY HAS A ROUTE EMITTER POD RUNNING
@@ -635,13 +634,13 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			return;
 		}
 		operationStateMessage = "RouteRegistration for Master Complete";
-		lastOpConfigMap = updateLastOperationConfigMap(state, action, operationStateMessage);
+		updateLastOperationConfigMap(state, action, operationStateMessage);
 
 		if (provisionDefaultOperator) {
 			LOG.info("Applying Default Operators to : " + serviceInstanceId);
 			LOG.trace("Operators: " + sbConfig.getDefaultOperators());
 			operationStateMessage = "Applying Default Operators";
-			lastOpConfigMap = updateLastOperationConfigMap(state, action, operationStateMessage);
+			updateLastOperationConfigMap(state, action, operationStateMessage);
 			ArrayList<Object> defaultOperators = createTypedResources(sbConfig.getDefaultOperators(),
 					jsonClusterContext);
 			try {
@@ -650,7 +649,7 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 				client.close();
 				state = OperationState.FAILED;
 				operationStateMessage = "Failed applying default Operators";
-				lastOpConfigMap = updateLastOperationConfigMap(state, action, operationStateMessage);
+				updateLastOperationConfigMap(state, action, operationStateMessage);
 				e.printStackTrace();
 			}
 		}
@@ -661,24 +660,28 @@ public class PKSServiceInstanceAddonDeploymentsRunnable implements Runnable {
 			client.close();
 			state = OperationState.FAILED;
 			operationStateMessage = "Failed applying Kibosh";
-			lastOpConfigMap = updateLastOperationConfigMap(state, action, operationStateMessage);
+			updateLastOperationConfigMap(state, action, operationStateMessage);
 			e.printStackTrace();
 		}
 
 		operationStateMessage = "finished deployment";
 		state = OperationState.SUCCEEDED;
-		lastOpConfigMap = updateLastOperationConfigMap(state, action, operationStateMessage);
+		updateLastOperationConfigMap(state, action, operationStateMessage);
 		client.close();
 		LOG.info("Finished addon Deployments on PKS Cluster: " + serviceInstanceId);
 	}
 
-	private ConfigMap updateLastOperationConfigMap(OperationState state, BrokerAction action, String operationStateMessage) {
+	private ConfigMap updateLastOperationConfigMap(OperationState state, BrokerAction action,
+			String operationStateMessage) {
 		ConfigMap lastOpConfigMap = client.configMaps().load(PKSServiceInstanceLastOperationInfo.class.getClassLoader()
 				.getResourceAsStream(Config.lastOpConfigMapFilename)).get();
-		lastOpConfigMap.getData().put("state", state.name());
-		lastOpConfigMap.getData().put("action", action.name());
-		lastOpConfigMap.getData().put("message", operationStateMessage);
-		client.configMaps().createOrReplace(lastOpConfigMap);
+		lastOpConfigMap = client.configMaps().inNamespace(lastOpConfigMap.getMetadata().getNamespace())
+				.withName(lastOpConfigMap.getMetadata().getName()).edit()
+					.addToData("state", state.name())
+					.addToData("action", action.name())
+					.addToData("message", operationStateMessage)
+				.done();
+
 		LOG.info("Updating Last Operation Config Map on PKS Cluster " + serviceInstanceId);
 		return lastOpConfigMap;
 	}
