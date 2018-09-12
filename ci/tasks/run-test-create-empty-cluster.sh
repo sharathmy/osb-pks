@@ -32,15 +32,6 @@ PKS_PLAN_ID=$(curl $SB/catalog | jq .services[0].plans[0].id -r)
 curl -X PUT  $SB/service_instances/$SI_ID \
   -H "Content-Type: application/json" \
   -d '{"service_id":"'$PKS_ID'", "plan_id": "'$PKS_PLAN_ID'", "parameters": {"provision_kibosh": false, "provision_default_operator": false}}'
-
+sleep 5
 cont=true
 get_last_op
-
-# UPDATE TO USE DEFAULT OPERATOR
-curl -X PATCH  $SB/service_instances/$SI_ID \
-  -H "Content-Type: application/json" \
-  -d '{"service_id":"'$PKS_ID'", "plan_id": "'$PKS_PLAN_ID'", "parameters": {"provision_kibosh": false, "provision_default_operator": true}}'
-
-cont=true
-get_last_op
-
