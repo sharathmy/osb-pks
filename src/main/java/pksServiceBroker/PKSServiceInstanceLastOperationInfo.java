@@ -59,6 +59,7 @@ public class PKSServiceInstanceLastOperationInfo {
 				this.master_ips = (JSONArray) jsonClusterInfo.get("kubernetes_master_ips");
 				this.boshDone = true;
 				this.operationStateMessage = "Bosh finished creating Kubernetes VMs";
+				this.getConfigMap();
 				return this;
 			} else
 				try {
@@ -78,30 +79,34 @@ public class PKSServiceInstanceLastOperationInfo {
 					default:
 						break;
 					}
-					e.printStackTrace();
 				}
 		} else
-			try {
-				JSONObject jsonClusterContext = new JSONObject(pksRestTemplate.postForObject(
-						"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + this.serviceInstanceId + "/binds",
-						this.pksRequestObject, String.class));
-				jsonClusterContext.put("master_ip", this.master_ips.getString(0));
-				clientUtil.setUseExternalRoute(false);
-				client = clientUtil.changeClient(jsonClusterContext, "kube-system");
-				ConfigMap lastOpConfigMap = client.configMaps().load(PKSServiceInstanceLastOperationInfo.class
-						.getClassLoader().getResourceAsStream(Config.lastOpConfigMapFilename)).get();
-				lastOpConfigMap = client.configMaps().inNamespace(lastOpConfigMap.getMetadata().getNamespace())
-						.withName(lastOpConfigMap.getMetadata().getName()).fromServer().get();
-				this.state = OperationState.valueOf(lastOpConfigMap.getData().get("state"));
-				this.operationStateMessage = lastOpConfigMap.getData().get("message");
-				this.action = BrokerAction.valueOf(lastOpConfigMap.getData().get("action"));
-
-			} catch (Exception e) {
-				e.printStackTrace();
-				client.close();
-			}
+			this.getConfigMap();
 		client.close();
 		return this;
+	}
+
+	private void getConfigMap() {
+		try {
+			JSONObject jsonClusterContext = new JSONObject(pksRestTemplate.postForObject(
+					"https://" + sbConfig.PKS_FQDN + ":9021/v1/clusters/" + this.serviceInstanceId + "/binds",
+					this.pksRequestObject, String.class));
+			jsonClusterContext.put("master_ip", this.master_ips.getString(0));
+			clientUtil.setUseExternalRoute(false);
+			client.close();
+			client = clientUtil.changeClient(jsonClusterContext, "kube-system");
+			ConfigMap lastOpConfigMap = client.configMaps().load(PKSServiceInstanceLastOperationInfo.class
+					.getClassLoader().getResourceAsStream(Config.lastOpConfigMapFilename)).get();
+			lastOpConfigMap = client.configMaps().inNamespace(lastOpConfigMap.getMetadata().getNamespace())
+					.withName(lastOpConfigMap.getMetadata().getName()).fromServer().get();
+			this.state = OperationState.valueOf(lastOpConfigMap.getData().get("state"));
+			this.operationStateMessage = lastOpConfigMap.getData().get("message");
+			this.action = BrokerAction.valueOf(lastOpConfigMap.getData().get("action"));
+
+		} catch (Exception e) {
+			client.close();
+		}
+		
 	}
 
 	public String getOperationStateMessage() {
