@@ -14,7 +14,6 @@ inputs:
 - name: test-cluster-data
 
 outputs:
-- name: test-cluster-data
 
 params:
   SPRING_APPLICATION_JSON:
