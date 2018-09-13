@@ -11,9 +11,10 @@ inputs:
 - name: version
 - name: osb-pks-ci
 - name: osb-pks-pre-release
-- name: empty-kubernetes-cluster-id
+- name: test-cluster-data
 
 outputs:
+- name: updated-test-cluster-data
 
 params:
   SPRING_APPLICATION_JSON:

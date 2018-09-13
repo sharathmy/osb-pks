@@ -5,7 +5,8 @@ source osb-pks-ci/ci/tasks/helper.sh
 source osb-pks-ci/ci/tasks/prepare.sh
 prepare
 
-source empty-kubernetes-cluster-id/keyval.properties
+# RECOVER CLUSTER DATA FROM PREVIOUS JOBS
+source test-cluster-data/keyval.properties
 
 
 PKS_FQDN=$(echo $SPRING_APPLICATION_JSON | jq .pks.fqdn -r)

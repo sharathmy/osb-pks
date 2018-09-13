@@ -30,9 +30,9 @@ PKS_ID=$(curl $SB/catalog | jq .services[0].id -r)
 PKS_PLAN_ID=$(curl $SB/catalog | jq .services[0].plans[0].id -r)
 
 # PUT CLUSTER DATA INTO KEYVAL
-echo "SI_ID=$SI_ID" > test-cluster-data/SI_ID.sh
-echo "PKS_ID=$PKS_ID" >> test-cluster-data/SI_ID.sh
-echo "PKS_PLAN_ID=$PKS_PLAN_ID" >> test-cluster-data/SI_ID.sh
+echo "SI_ID=$SI_ID" > test-cluster-data/keyval.properties
+echo "PKS_ID=$PKS_ID" >> test-cluster-data/keyval.properties
+echo "PKS_PLAN_ID=$PKS_PLAN_ID" >> test-cluster-data/keyval.properties
 
 # TEST CREATE CLUSTER
 curl -X PUT  $SB/service_instances/$SI_ID \
