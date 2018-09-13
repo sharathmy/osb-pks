@@ -21,13 +21,19 @@ nohup java -jar osb-pks-pre-release/osb_pks.jar &
 wait_for_osb
 
 SI_ID=$(cat /proc/sys/kernel/random/uuid)  # SERVICE INSTANCE ID
-echo "SI_ID=$SI_ID" > test-cluster-data/SI_ID.sh
+
 set -o pipefail # Fail on non 0 returns in pipe chains
 SB="http://admin:pass@localhost:8080/v2"
 # TEST CATALOG FOR PROVIDING PROPER JSON
 curl $SB/catalog  | jq .
 PKS_ID=$(curl $SB/catalog | jq .services[0].id -r)
 PKS_PLAN_ID=$(curl $SB/catalog | jq .services[0].plans[0].id -r)
+
+# PUT CLUSTER DATA INTO KEYVAL
+echo "SI_ID=$SI_ID" > test-cluster-data/SI_ID.sh
+echo "PKS_ID=$PKS_ID" >> test-cluster-data/SI_ID.sh
+echo "PKS_PLAN_ID=$PKS_PLAN_ID" >> test-cluster-data/SI_ID.sh
+
 # TEST CREATE CLUSTER
 curl -X PUT  $SB/service_instances/$SI_ID \
   -H "Content-Type: application/json" \
