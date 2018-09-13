@@ -11,10 +11,10 @@ inputs:
 - name: version
 - name: osb-pks-ci
 - name: osb-pks-pre-release
-- name: test-cluster-data
+- name: updated-test-cluster-data
 
 outputs:
-- name: updated-test-cluster-data
+
 
 params:
   SPRING_APPLICATION_JSON:

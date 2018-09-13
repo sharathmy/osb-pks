@@ -6,7 +6,7 @@ source osb-pks-ci/ci/tasks/prepare.sh
 prepare
 
 # RECOVER CLUSTER DATA FROM PREVIOUS JOBS
-source test-cluster-data/keyval.properties
+source <(cat updated-test-cluster-data/keyval.properties | grep -v '^UPDATED=')
 KIBOSH_FQDN=$(echo $SI_CREDENTIALS | jq -r '.credentials.k8s_context."pks-config-map"."kibosh.fqdn"')
 KIBOSH_PORT=$(echo $SI_CREDENTIALS | jq -r '.credentials.k8s_context."pks-config-map"."kibosh.port"')
 KIBOSH_USER=$(echo $SI_CREDENTIALS | jq -r '.credentials.k8s_context."pks-config-map"."kibosh.user"')
@@ -20,7 +20,7 @@ export SB_BROKER_PASSWORD=$KIBOSH_PASSWORD
 #IF $HOSTS IS SET, WE NEED TO FAKE DNS HERE AS WELL, THIS WILL APPEND TO LAST LINE OF HOSTS THA
 
 if [ -n "$HOSTS" ]; then
-  GO_ROUTER_IP=$(cat hosts | grep api | head -1 | sed 's/ .*$//g')
+  GO_ROUTER_IP=$(cat /etc/hosts | grep api | head -1 | sed 's/ .*$//g')
   echo "$GO_ROUTER_IP $KIBOSH_FQDN" >> /etc/hosts
 fi
 
