@@ -28,7 +28,7 @@ SB="http://admin:pass@localhost:8080/v2"
 set -e -o pipefail
 
 # TEST CREATE CLUSTER
-curl -X PUT  $SB/service_instances/$SI_ID \
+curl -X PATCH  $SB/service_instances/$SI_ID \
   -H "Content-Type: application/json" \
   -d '{"service_id":"'$PKS_ID'", "plan_id": "'$PKS_PLAN_ID'", "parameters": {"provision_kibosh": true, "provision_default_operator": false}}'
 
