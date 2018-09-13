@@ -21,6 +21,11 @@ import_self_signed_certs "$PKS_API_CERT" "$PKS_UAA_CERT" "$PCF_API_CERT" "$PCF_U
 # START ARTIFACT
 nohup java -jar osb-pks-pre-release/osb_pks.jar&
 wait_for_osb
+
+SB="http://admin:pass@localhost:8080/v2"
+
+set -e -o pipefail
+
 # TEST CREATE CLUSTER
 curl -X PUT  $SB/service_instances/$SI_ID \
   -H "Content-Type: application/json" \
