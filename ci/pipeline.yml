@@ -1,10 +1,12 @@
 jobs:
 - name: create-latest-build
+  serial: true
   plan:
   - aggregate:
     - get: version
       params: {bump: minor}
     - get: osb-pks
+      trigger: true
     - get: osb-pks-ci
   - task: maven-build
     file: osb-pks-ci/ci/tasks/maven-build.yml
@@ -18,7 +20,9 @@ jobs:
       body: jar/body
       globs:
       - jar/osb_pks.jar
-- name: run-tests
+
+
+- name: run-test-create-empty-cluster
   plan:
   - aggregate:
     - get: osb-pks-ci
@@ -28,6 +32,7 @@ jobs:
     - get: osb-pks-pre-release
       passed: 
       - create-latest-build
+      trigger: true
   - task: run-test-create-empty-cluster
     file: osb-pks-ci/ci/tasks/run-test-create-empty-cluster.yml
     params:
@@ -37,6 +42,24 @@ jobs:
       HOSTS: 
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
+  - put: empty-kubernetes-cluster-id
+    params:
+      file: test-cluster-data/SI_ID.sh
+- name: run-test-update-deploy-kibosh
+  plan:
+  - aggregate:
+    - get: empty-kubernetes-cluster-id 
+      passed:
+      - run-test-create-empty-cluster
+    - get: osb-pks-ci
+    - get: version
+      passed: 
+      - run-test-create-empty-cluster
+    - get: osb-pks-pre-release
+      passed: 
+      - run-test-create-empty-cluster
+      trigger: true
+    
   - task: run-test-update-deploy-kibosh
     file: osb-pks-ci/ci/tasks/run-test-update-deploy-kibosh.yml
     params:
@@ -52,6 +75,7 @@ jobs:
       tag: version/version
       globs:
       - osb-pks-pre-release/osb_pks.jar
+
     
 resources:
 - name: osb-pks
@@ -94,3 +118,10 @@ resources:
     pre_release: true
     private_key: ((git_key))
     access_token: ((osb-pks-repo-access-token))
+- name: empty-kubernetes-cluster-id
+  type: keyval
+resource_types:
+  - name: keyval 
+    type: docker-image
+    source:
+      repository: swce/keyval-resource
