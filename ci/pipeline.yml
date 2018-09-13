@@ -77,6 +77,28 @@ jobs:
       HOSTS: 
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
+  - task: run-test-get-binding
+    file: osb-pks-ci/ci/tasks/run-test-get-binding.yml
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: 
+      - 10.213.10.52 tcp.pcf21.starkandwayne.com
+      - 10.213.10.3 api.pks.pcf21.starkandwayne.com
+  - task: run-test-kibosh-tests
+    file: osb-pks-ci/ci/tasks/run-test-kibosh-testscript.yml
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: 
+      - 10.213.10.52 tcp.pcf21.starkandwayne.com
+      - 10.213.10.3 api.pks.pcf21.starkandwayne.com
+
+  - put: test-cluster-data
+    params:
+      file: updated-test-cluster-data/keyval.properties
   - put: osb-pks-release
     params:
       name: version/version
