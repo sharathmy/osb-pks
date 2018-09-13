@@ -21,7 +21,6 @@ jobs:
       globs:
       - jar/osb_pks.jar
 
-
 - name: run-test-create-empty-cluster
   plan:
   - aggregate:
@@ -42,13 +41,22 @@ jobs:
       HOSTS: 
       - 10.213.10.52 tcp.pcf21.starkandwayne.com
       - 10.213.10.3 api.pks.pcf21.starkandwayne.com
-  - put: empty-kubernetes-cluster-id
+  - task: run-test-get-binding
+    file: osb-pks-ci/ci/tasks/run-test-get-binding.yml
     params:
-      file: test-cluster-data/SI_ID.sh
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: 
+      - 10.213.10.52 tcp.pcf21.starkandwayne.com
+      - 10.213.10.3 api.pks.pcf21.starkandwayne.com
+  - put: test-cluster-data
+    params:
+      file: updated-test-cluster-data/keyval.properties
 - name: run-test-update-deploy-kibosh
   plan:
   - aggregate:
-    - get: empty-kubernetes-cluster-id 
+    - get: test-cluster-data 
       passed:
       - run-test-create-empty-cluster
     - get: osb-pks-ci
@@ -118,7 +126,7 @@ resources:
     pre_release: true
     private_key: ((git_key))
     access_token: ((osb-pks-repo-access-token))
-- name: empty-kubernetes-cluster-id
+- name: test-cluster-data
   type: keyval
 resource_types:
   - name: keyval 

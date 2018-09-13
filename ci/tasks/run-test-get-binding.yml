@@ -1,0 +1,27 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: nouseforaname/jdk-8-netcat-jq
+    tag: "latest"
+
+inputs:
+- name: version
+- name: osb-pks-ci
+- name: osb-pks-pre-release
+- name: test-cluster-data
+
+outputs:
+- name: updated-test-cluster-data
+
+params:
+  SPRING_APPLICATION_JSON:
+  PCF_CA_CERT:
+  SKIP_TLS:
+  HOSTS:
+
+run:
+  path: osb-pks-ci/ci/tasks/run-test-create-empty-cluster.sh
+
