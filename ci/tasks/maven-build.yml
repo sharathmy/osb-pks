@@ -8,11 +8,12 @@ image_resource:
     tag: "latest"
 
 inputs:
-- name: sb_source
+- name: osb-pks
+- name: osb-pks-ci
+- name: version
 
 outputs:
 - name: jar
 
 run:
-  path: sb_source/ci/tasks/maven-build.sh
-
+  path: osb-pks-ci/ci/tasks/maven-build.sh

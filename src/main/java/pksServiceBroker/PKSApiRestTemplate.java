@@ -36,7 +36,6 @@ class PKS_API_config {
 		resource.setGrantType("password");
 		resource.setUsername(pksUser);
 		resource.setPassword(pksUserPass);
-		
 		return resource;
 	}
 

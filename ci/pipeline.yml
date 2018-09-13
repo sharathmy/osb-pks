@@ -1,23 +1,147 @@
 jobs:
-- name: release
+- name: create-latest-build
+  serial: true
   plan:
   - aggregate:
-    - get: sb_source
+    - get: version
+      params: {bump: minor}
+    - get: osb-pks
+      trigger: true
+    - get: osb-pks-ci
   - task: maven-build
-    file: sb_source/ci/tasks/maven-build.sh
+    file: osb-pks-ci/ci/tasks/maven-build.yml
+  - put: version
+    params: 
+      bump: patch
+  - put: osb-pks-pre-release
+    params:
+      name: version/version
+      tag: version/version
+      body: jar/body
+      globs:
+      - jar/osb_pks.jar
+
+- name: run-test-create-empty-cluster
+  plan:
+  - aggregate:
+    - get: osb-pks-ci
+    - get: version
+      passed: 
+      - create-latest-build
+    - get: osb-pks-pre-release
+      passed: 
+      - create-latest-build
+      trigger: true
+  - task: run-test-create-empty-cluster
+    file: osb-pks-ci/ci/tasks/run-test-create-empty-cluster.yml
     params:
       SPRING_APPLICATION_JSON: ((spring_application_json))
-      
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: ((hosts))
+  - task: run-test-get-binding
+    file: osb-pks-ci/ci/tasks/run-test-get-binding.yml
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: ((hosts))
+  - put: test-cluster-data
+    params:
+      file: updated-test-cluster-data/keyval.properties
+- name: run-test-update-deploy-kibosh
+  plan:
+  - aggregate:
+    - get: test-cluster-data 
+      passed:
+      - run-test-create-empty-cluster
+    - get: osb-pks-ci
+    - get: version
+      passed: 
+      - run-test-create-empty-cluster
+    - get: osb-pks-pre-release
+      passed: 
+      - run-test-create-empty-cluster
+      trigger: true
+    
+  - task: run-test-update-deploy-kibosh
+    file: osb-pks-ci/ci/tasks/run-test-update-deploy-kibosh.yml
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: ((hosts))
+  - task: run-test-get-binding
+    file: osb-pks-ci/ci/tasks/run-test-get-binding.yml
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: ((hosts))
+  - task: run-test-kibosh-tests
+    file: osb-pks-ci/ci/tasks/run-test-kibosh-testscript.yml
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: ((hosts))
 
+  - put: test-cluster-data
+    params:
+      file: updated-test-cluster-data/keyval.properties
+  - put: osb-pks-release
+    params:
+      name: version/version
+      tag: version/version
+      globs:
+      - osb-pks-pre-release/osb_pks.jar
 
-
-
-
+    
 resources:
-- name: sb_source
+- name: osb-pks
   type: git
   source:
     branch: master
-    uri: git@github.com:sharathmy/osb-pks.git
+    uri: git@github.com:starkandwayne/osb-pks.git
     private_key: ((git_key))
-
+    paths:
+    - src/**/*
+- name: osb-pks-ci
+  type: git
+  source:
+    branch: master
+    uri: git@github.com:starkandwayne/osb-pks.git
+    private_key: ((git_key))
+    paths:
+    - ci/**/*
+- name: version
+  type: semver
+  source:
+    driver: git
+    uri: git@github.com:starkandwayne/osb-pks.git
+    branch: master
+    file: version
+    private_key: ((git_key))
+    initial_version: 0.0.1
+- name: osb-pks-release
+  type: github-release
+  source:
+    owner: starkandwayne
+    repository: osb-pks
+    private_key: ((git_key))
+    access_token: ((osb-pks-repo-access-token))
+- name: osb-pks-pre-release
+  type: github-release
+  source:
+    owner: starkandwayne
+    repository: osb-pks
+    pre_release: true
+    private_key: ((git_key))
+    access_token: ((osb-pks-repo-access-token))
+- name: test-cluster-data
+  type: keyval
+resource_types:
+  - name: keyval 
+    type: docker-image
+    source:
+      repository: swce/keyval-resource

@@ -8,10 +8,13 @@ image_resource:
     tag: "latest"
 
 inputs:
-- name: osb-pks
-- name: jar
+- name: version
+- name: osb-pks-ci
+- name: osb-pks-pre-release
+- name: updated-test-cluster-data
 
 outputs:
+
 
 params:
   SPRING_APPLICATION_JSON:
@@ -20,5 +23,5 @@ params:
   HOSTS:
 
 run:
-  path: osb-pks/ci/tasks/run-test-create-empty-cluster.sh
+  path: osb-pks-ci/ci/tasks/run-test-kibosh-testscript.sh
 
