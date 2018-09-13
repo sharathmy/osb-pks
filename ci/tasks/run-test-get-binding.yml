@@ -23,5 +23,5 @@ params:
   HOSTS:
 
 run:
-  path: osb-pks-ci/ci/tasks/run-test-create-empty-cluster.sh
+  path: osb-pks-ci/ci/tasks/run-test-get-binding.sh
 
