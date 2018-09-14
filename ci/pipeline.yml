@@ -134,8 +134,8 @@ resources:
     uri: git@github.com:starkandwayne/osb-pks.git
     private_key: ((git_key))
     paths:
-    - ci/**/*
-    - charts/**/*
+    - ci/
+    - charts/
 - name: version
   type: semver
   source:
