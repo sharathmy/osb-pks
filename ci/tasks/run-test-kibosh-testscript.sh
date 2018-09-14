@@ -29,4 +29,7 @@ if $SKIP_TLS; then
   update-ca-certificates
 fi
 
+
+sleep 5
+
 eden catalog
