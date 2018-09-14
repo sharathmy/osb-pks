@@ -9,3 +9,4 @@ RUN curl -Lo ./bosh https://s3.amazonaws.com/bosh-cli-artifacts/bosh-cli-5.1.2-l
     && chmod +x ./bosh && cp bosh /usr/bin/bosh
 RUN wget https://github.com/starkandwayne/eden/releases/download/v0.6.4/eden-linux-amd64 && chmod +x eden-linux-amd64 && mv eden-linux-amd64 /usr/bin/eden
 RUN apt-get update && apt-get install bzr
+RUN wget https://github.com/cf-platform-eng/kibosh/releases/download/0.0.101/bazaarcli-0.0.100.linux && mv bazaarcli-0.0.100.linux /usr/bin/bzr && chmod +x /usr/bin/bzr
