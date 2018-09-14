@@ -11,7 +11,7 @@ inputs:
 - name: version
 - name: osb-pks-ci
 - name: osb-pks-pre-release
-- name: updated-test-cluster-data
+- name: test-cluster-data
 
 outputs:
 
