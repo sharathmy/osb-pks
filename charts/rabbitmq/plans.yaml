@@ -1,0 +1,6 @@
+- name: "ha"
+  description: "High availablity plan for rmq-dell"
+  file: "ha.yaml"
+- name: "singlenode"
+  description: "Single node plan for rmq-dell"
+  file: "single.yaml"

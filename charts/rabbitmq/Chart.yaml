@@ -1,0 +1,7 @@
+name: rabbitmq
+appVersion: "1.0"
+version: 0.1.0
+description: RabbitMQ service to provision dedicated rabbitmq instances.
+home: https://www.rabbitmq.com/getstarted.html
+icon: https://cdn.iconscout.com/public/images/icon/free/png-512/rabbitmq-logo-brand-3a7659e68e94e62e-512x512.png
+
