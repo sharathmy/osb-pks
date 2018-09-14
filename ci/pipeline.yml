@@ -85,7 +85,6 @@ jobs:
       SKIP_TLS: true
       PCF_CA_CERT: ((pcf_ca))
       HOSTS: ((hosts))
-
   - put: test-cluster-data
     params:
       file: updated-test-cluster-data/keyval.properties
@@ -95,8 +94,30 @@ jobs:
       tag: version/version
       globs:
       - osb-pks-pre-release/osb_pks.jar
-
-    
+- name: upload-and-test-rabbit-chart
+  plan:
+  - aggregate:
+    - get: test-cluster-data 
+      passed:
+      - run-test-update-deploy-kibosh
+    - get: osb-pks-ci
+    - get: version
+      passed: 
+      - run-test-create-empty-cluster
+    - get: osb-pks-pre-release
+      passed: 
+      - run-test-update-deploy-kibosh
+      trigger: true
+  - task: upload-and-test-rabbit-chart
+    file: osb-pks-ci/ci/tasks/upload-and-test-chart.yml
+    params:
+      SPRING_APPLICATION_JSON: ((spring_application_json))
+      SKIP_TLS: true
+      PCF_CA_CERT: ((pcf_ca))
+      HOSTS: ((hosts))
+      CHART_TGZ_PATH: osb-pks-ci/charts/rabbitmq.tgz
+      CHART_TEST_SCRIPT_PATH: osb-pks-ci/charts/rabbit-mq.sh
+          
 resources:
 - name: osb-pks
   type: git
