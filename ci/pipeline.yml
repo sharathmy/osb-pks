@@ -135,6 +135,7 @@ resources:
     private_key: ((git_key))
     paths:
     - ci/**/*
+    - charts/**/*
 - name: version
   type: semver
   source:
