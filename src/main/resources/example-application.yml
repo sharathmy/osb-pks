@@ -1,0 +1,53 @@
+spring:
+  profiles: snw
+  security:
+    user: 
+      name: admin    #SB BASIC AUTH
+      password: pass
+logging:
+  level:
+    pksServiceBroker: TRACE 
+    org:
+      springframework: ERROR
+pcf: # PROVIDE PCF ENDPOINTS
+  apps: apps.pcf.com
+  sys: system.pcf.com
+  api: api.${pcf.sys}
+  login: login.${pcf.sys}
+  tcp: tcp.pcf.com
+servicebroker:
+  service: # CATALOG CONFIG, WILL BE USED TO PROVIDE SERVICE CATALOG
+    id: PKS-Service 
+    name: PKS-Service 
+    description: Deploy On Demand PKS Clusters
+    bindable: true
+    bindings_retrievable: true
+routereg: # ROUTING API SETTINGS
+  externalPortRange: 20000-60000 
+  route_api_client:
+    accessTokenUri: https://${pcf.login}/oauth/token
+    client_id: tcp_emitter # TCP_EMITTER_CLIENT FROM PCF CREDENTIALS TAB HAS RIGHT SCOPE/AUTHORIZATIONS 
+    client_secret: 
+    grant_type: client_credentials
+
+addons: # EVERYTHING THAT IS PROVIDED IN THESE LISTS IS APPLIED TO SERVICE INSTANCES EITHER HTTP REMOTE LINKS OR FROM CLASSPATH
+  default_operators:
+  - https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/mongodb-enterprise.yaml
+  default_addons:
+  - config/vsphere-storage-class.yaml
+  - config/kibosh-rbac-service-account.yaml
+  - config/kibosh-rbac-cr-binding.yaml
+  - config/kibosh-deployment.yaml
+  - config/kibosh-service.yaml
+  - config/kibosh-bazaar-service.yaml
+  
+pks: # CONFIGURE PKS ENDPOINT
+  fqdn: api.pksi.com
+  pks_api_user: 
+    name: pks_user
+    password: pks_user_password
+  pks_api_client:
+    accessTokenUri: https://${pks.fqdn}:8443/oauth/token
+    name: pks_cli
+    secret: ""
+    grant_type: password
