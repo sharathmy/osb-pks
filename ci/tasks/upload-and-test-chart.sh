@@ -6,7 +6,7 @@ source osb-pks-ci/ci/tasks/prepare.sh
 prepare
 
 # RECOVER CLUSTER DATA FROM PREVIOUS JOBS
-source <(cat updated-test-cluster-data/keyval.properties | grep -v '^UPDATED=')
+source <(cat test-cluster-data/keyval.properties | grep -v '^UPDATED=')
 KIBOSH_FQDN=$(echo $SI_CREDENTIALS | jq -r '.credentials.k8s_context."pks-config-map"."kibosh.fqdn"')
 KIBOSH_PORT=$(echo $SI_CREDENTIALS | jq -r '.credentials.k8s_context."pks-config-map"."kibosh.port"')
 KIBOSH_USER=$(echo $SI_CREDENTIALS | jq -r '.credentials.k8s_context."pks-config-map"."kibosh.user"')
@@ -47,7 +47,7 @@ $bazaar list
 #remove first line of table that contains headers
 #remove empty lines from output 
 #remove last line that contains comment
-SERVICE_CATALOG="$(eden catalog | tail -n +2 | grep -v '^$' | head -n -1)"
+SERVICE_CATALOG="$(eden catalog | tail -n +2 | grep -v '^$\|======' | head -n -1)"
 
 SERVICE_NAME="$(echo -e "$SERVICE_CATALOG" | awk '{print $1}' | head -1 )"
 SERVICE_PLANS=($(echo -e "$SERVICE_CATALOG" | awk '{print $2}'))
